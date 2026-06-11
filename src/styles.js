@@ -85,10 +85,6 @@ const css = `
 #${ROOT_ID} .pr-btn--danger{ border-color:var(--danger) !important; }
 #${ROOT_ID} .pr-btn--danger:hover{ background:var(--danger-soft) !important; filter:none !important; }
 #${ROOT_ID} .pr-btn--icon{ width:30px !important; height:30px !important; padding:0 !important; }
-#${ROOT_ID} .pr-btn--icon.is-active, #${ROOT_ID} .pr-btn--icon.is-active *{
-  color:var(--accent-strong) !important;
-}
-#${ROOT_ID} .pr-btn--icon.is-active{ background:var(--accent-soft) !important; border-color:var(--accent) !important; }
 #${ROOT_ID} .pr-btn--icon-action{
   background:var(--paper) !important; color:var(--ink-3) !important; border:1px solid var(--line) !important;
 }
@@ -197,9 +193,7 @@ const css = `
 #${ROOT_ID} .pr-hero h4{ margin:0; font-size:var(--fs-lg); font-weight:600; line-height:var(--lh-tight); }
 #${ROOT_ID} .pr-hero p{ margin:0; color:var(--ink-3); font-size:var(--fs-md); }
 
-/* ---- settings ---- */
-#${ROOT_ID} .pr-settings{ padding:var(--s-8) var(--gutter); display:flex; flex-direction:column; gap:var(--s-7); max-width:640px; }
-#${ROOT_ID} .pr-settings h4{ margin:0; font-size:var(--fs-lg); font-weight:600; line-height:var(--lh-tight); }
+/* ---- settings / form 共通部品 ---- */
 #${ROOT_ID} .pr-field{ display:flex; flex-direction:column; gap:var(--s-2); }
 #${ROOT_ID} .pr-field label{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-field .pr-note{ font-size:var(--fs-xs); color:var(--ink-4); }

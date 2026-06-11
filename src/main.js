@@ -179,42 +179,8 @@
     return usersViewHtml(state);
   }
 
-  function settingsView() {
-    const src = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
-    const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
-    const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
-    return `
-      <div class="pr-settings">
-        <h4>設定</h4>
-        <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(src)}</code></div>
-        <div class="pr-field">
-          <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
-          <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
-            SharePoint (ドキュメント/permreg/ に配置した dist)</label>
-          <label class="pr-radio"><input type="radio" name="pr-src" value="local" ${isLocal ? 'checked' : ''}>
-            ローカル開発サーバ(開発者モード)</label>
-        </div>
-        <div class="pr-field">
-          <label>ローカル配信 URL(開発者モード時)</label>
-          <input type="text" class="pr-input" id="pr-dev-base" value="${esc(localBase)}" placeholder="${esc(DEFAULT_LOCAL_BASE)}">
-          <span class="pr-note">リポジトリで <code>python dev/serve.py</code> を起動して配信します。</span>
-        </div>
-        <div class="pr-field">
-          <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
-          <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
-          <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
-        </div>
-        <div>
-          <button class="pr-btn pr-btn--primary" data-act="save-settings">保存</button>
-        </div>
-        <div class="pr-field">
-          <span class="pr-note">設定は次回のブックマークレット起動から反映されます(このパネルは再読込されません)。</span>
-        </div>
-      </div>`;
-  }
-
   function render() {
-    const views = { users: usersView, master: masterView, settings: settingsView };
+    const views = { users: usersView, master: masterView };
     const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
         ${label}<small>${sub}</small></button>`;
@@ -224,9 +190,8 @@
         <span class="pr-title">permreg<small>利用者権限登録 管理</small></span>
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(getWebUrl())}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
-        <button class="pr-btn pr-btn--ghost" data-act="reload">${ico('refresh-cw')}再読込</button>
-        <button class="pr-btn pr-btn--icon pr-btn--ghost${state.view === 'settings' ? ' is-active' : ''}"
-          data-act="nav" data-view="settings" aria-label="設定" title="設定(配信元 / 開発者モード)">${ico('gear')}</button>
+        <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="reload" aria-label="再読込" title="再読込">${ico('refresh-cw')}</button>
+        <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="settings" aria-label="設定" title="設定(配信元 / 開発者モード)">${ico('gear')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="close" aria-label="閉じる" title="閉じる">${ico('x')}</button>
       </div>
       <div class="pr-body">
@@ -238,25 +203,6 @@
         <div class="pr-main">${views[state.view]()}</div>
       </div>
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'} / ${esc(BUILD)}</div>`;
-
-    if (state.view === 'settings') loadBundleDirField();
-  }
-
-  // 配信フォルダ欄はローカル配信サーバから現在値を取得して埋める(サーバ未起動なら無効化)
-  async function loadBundleDirField() {
-    const input = app.querySelector('#pr-bundle-dir');
-    if (!input) return;
-    const base = (localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE).replace(/\/+$/, '');
-    try {
-      const r = await fetch(base + '/bundle-dir?t=' + Date.now());
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json();
-      input.value = j.dir || '';
-      input.dataset.loaded = '1';
-    } catch {
-      input.placeholder = '配信サーバに接続できません(python dev/serve.py を起動して再表示)';
-      input.disabled = true;
-    }
   }
 
   async function reload() {
@@ -305,6 +251,7 @@
 
     if (act === 'close') { root.remove(); return; }
     if (act === 'nav') { state.view = t.dataset.view; render(); return; }
+    if (act === 'settings') { openSettingsModal(); return; }
     if (act === 'reload') { run('再読込', reload); return; }
     if (act === 'setup') {
       run('セットアップ', async () => {
@@ -350,35 +297,6 @@
           '第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
       });
-      return;
-    }
-
-    if (act === 'save-settings') {
-      const isLocal = app.querySelector('input[name="pr-src"][value="local"]').checked;
-      const base = app.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
-      if (isLocal) {
-        localStorage.setItem(LS_DEV_SOURCE, 'local');
-        localStorage.setItem(LS_DEV_BASE, base);
-      } else {
-        localStorage.removeItem(LS_DEV_SOURCE);
-      }
-      // 配信フォルダはローカル配信サーバ側の設定なので、取得済みのときだけ POST で切替
-      const dirInput = app.querySelector('#pr-bundle-dir');
-      if (isLocal && dirInput && dirInput.dataset.loaded && dirInput.value.trim()) {
-        try {
-          const r = await fetch(base + '/bundle-dir', {
-            method: 'POST',
-            body: JSON.stringify({ dir: dirInput.value.trim() }),
-          });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-          toast('ok', '保存しました(配信フォルダ: ' + j.dir + ')。次回のブックマークレット起動から反映されます');
-        } catch (e) {
-          toast('err', '配信フォルダの変更に失敗しました — ' + e.message);
-        }
-        return;
-      }
-      toast('ok', '保存しました。次回のブックマークレット起動から反映されます');
       return;
     }
 
