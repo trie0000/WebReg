@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-5f7725e7" !== 'undefined' ? "0.1.0-5f7725e7" : 'dev';
+const BUILD = typeof "0.1.0-8867a99d" !== 'undefined' ? "0.1.0-8867a99d" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {

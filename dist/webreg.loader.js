@@ -10,6 +10,21 @@ return c.webServerRelativeUrl.replace(/\/$/, '') + '/Shared%20Documents/webreg';
 var m = location.pathname.match(/^(\/(?:sites|teams)\/[^/]+)/);
 return (m ? m[1] : '') + '/Shared%20Documents/webreg';
 }
+try {
+if (w.localStorage) {
+var olds = [];
+for (var i = 0; i < localStorage.length; i++) {
+var k = localStorage.key(i);
+if (k && k.indexOf('permreg.') === 0) olds.push(k);
+}
+for (var j = 0; j < olds.length; j++) {
+var nk = 'webreg.' + olds[j].slice('permreg.'.length);
+if (localStorage.getItem(nk) == null) {
+localStorage.setItem(nk, String(localStorage.getItem(olds[j])).replace('/permreg', '/webreg'));
+}
+}
+}
+} catch (e) { }
 var dev = '';
 try {
 if (w.localStorage && localStorage.getItem('webreg.dev.bundle-source') === 'local') {
