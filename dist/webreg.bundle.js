@@ -36,7 +36,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-7869246e" !== 'undefined' ? "0.1.0-7869246e" : 'dev';
+const BUILD = typeof "0.1.0-fd09d0ec" !== 'undefined' ? "0.1.0-fd09d0ec" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -682,6 +682,30 @@ const css = `
   user-select:text; word-break:break-all; color:var(--ink);
 }
 @keyframes pr-slide{ from{ transform:translateY(-8px); opacity:0; } }
+/* ---- settings hub modal (§19: 固定サイズ+端ドラッグでリサイズ可、項目で大きさを変えない) ---- */
+#${ROOT_ID} .pr-modal--hub{
+  width:min(1000px, calc((100vw - 80px) * 2 / 3)) !important;
+  height:calc(100vh - 80px);
+  min-width:640px; min-height:480px;
+  max-height:none;
+  resize:both; overflow:hidden;
+  padding:var(--s-8) 0 var(--s-6) !important;
+}
+#${ROOT_ID} .pr-modal--hub h4{ padding:0 var(--s-9); }
+#${ROOT_ID} .pr-modal--hub .pr-modal-actions{ padding:0 var(--s-9); }
+#${ROOT_ID} .pr-hub-body{
+  flex:1; display:flex; min-height:0;
+  border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+}
+#${ROOT_ID} .pr-hub-nav{
+  flex:none; width:200px; display:flex; flex-direction:column; gap:var(--s-1);
+  background:var(--paper-2); border-right:1px solid var(--line); padding:var(--s-5) 0;
+}
+#${ROOT_ID} .pr-hub-panels{ flex:1; min-width:0; overflow:auto; }
+#${ROOT_ID} .pr-hub-panel{
+  display:flex; flex-direction:column; gap:var(--s-7);
+  padding:var(--s-8) var(--s-9); max-width:640px;
+}
 /* ---- modal ---- */
 #${ROOT_ID} .pr-backdrop{
   position:fixed; inset:0; z-index:2147483700;
@@ -1429,48 +1453,72 @@ const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
 const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
 const back = el(`
     <div class="pr-backdrop">
-      <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="設定">
+      <div class="pr-modal pr-modal--hub" role="dialog" aria-modal="true" aria-label="設定">
         <h4>設定</h4>
-        <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(srcInfo)}</code></div>
-        <div class="pr-field">
-          <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
-          <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
-            SharePoint (ドキュメント/webreg/ に配置した dist)</label>
-          <label class="pr-radio"><input type="radio" name="pr-src" value="local" ${isLocal ? 'checked' : ''}>
-            ローカル開発サーバ(開発者モード)</label>
+        <div class="pr-hub-body">
+          <nav class="pr-hub-nav" aria-label="設定メニュー">
+            <button class="pr-nav-item active" data-hub="personal">個人設定<small>この端末に保存</small></button>
+            <button class="pr-nav-item" data-hub="shared">共通設定<small>利用者一覧リストに保存</small></button>
+            <button class="pr-nav-item" data-hub="dev">開発者<small>配信元 / バージョン</small></button>
+          </nav>
+          <div class="pr-hub-panels">
+            <div class="pr-hub-panel" data-hubpanel="personal">
+              <div class="pr-field">
+                <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭に付ける)</label>
+                <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
+                <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
+                  変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照し、無ければセットアップ/反映で作成します)。</span>
+              </div>
+            </div>
+            <div class="pr-hub-panel" data-hubpanel="shared" style="display:none">
+              <div class="pr-field">
+                <label>「変更区分」の選択肢(1行1件)</label>
+                <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
+              </div>
+              <div class="pr-field">
+                <label>「権限」の選択肢(1行1件)</label>
+                <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-pm" rows="3" ${state.usersReady ? '' : 'disabled'}></textarea>
+                ${state.usersReady ? '' : '<span class="pr-note">「リストへ反映」で利用者一覧リストを作成すると編集できます。</span>'}
+              </div>
+              <span class="pr-note">保存すると利用者一覧リストの列の選択肢に即反映されます(全員に適用)。</span>
+            </div>
+            <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
+              <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(srcInfo)}</code></div>
+              <div class="pr-field">
+                <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
+                <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
+                  SharePoint (ドキュメント/webreg/ に配置した dist)</label>
+                <label class="pr-radio"><input type="radio" name="pr-src" value="local" ${isLocal ? 'checked' : ''}>
+                  ローカル開発サーバ(開発者モード)</label>
+              </div>
+              <div class="pr-field">
+                <label>ローカル配信 URL(開発者モード時)</label>
+                <input type="text" class="pr-input" id="pr-dev-base" value="${esc(localBase)}" placeholder="${esc(DEFAULT_LOCAL_BASE)}">
+                <span class="pr-note">リポジトリで <code>python dev/serve.py</code> を起動して配信します。</span>
+              </div>
+              <div class="pr-field">
+                <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
+                <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
+                <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
+              </div>
+              <span class="pr-note">配信設定は次回のブックマークレット起動から反映されます。</span>
+            </div>
+          </div>
         </div>
-        <div class="pr-field">
-          <label>ローカル配信 URL(開発者モード時)</label>
-          <input type="text" class="pr-input" id="pr-dev-base" value="${esc(localBase)}" placeholder="${esc(DEFAULT_LOCAL_BASE)}">
-          <span class="pr-note">リポジトリで <code>python dev/serve.py</code> を起動して配信します。</span>
-        </div>
-        <div class="pr-field">
-          <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
-          <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
-          <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
-        </div>
-        <div class="pr-field">
-          <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭に付ける)</label>
-          <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
-          <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
-            変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照し、無ければセットアップ/反映で作成します)。</span>
-        </div>
-        <div class="pr-field">
-          <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
-          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
-        </div>
-        <div class="pr-field">
-          <label>「権限」の選択肢(1行1件)</label>
-          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-pm" rows="3" ${state.usersReady ? '' : 'disabled'}></textarea>
-          ${state.usersReady ? '' : '<span class="pr-note">「リストへ反映」で利用者一覧リストを作成すると編集できます。</span>'}
-        </div>
-        <span class="pr-note">配信設定は次回のブックマークレット起動から反映されます。選択肢は保存時に即反映されます。</span>
         <div class="pr-modal-actions">
           <button class="pr-btn pr-btn--secondary" data-mact="cancel">閉じる</button>
           <button class="pr-btn pr-btn--primary" data-mact="ok">保存</button>
         </div>
       </div>
     </div>`);
+back.querySelector('.pr-hub-nav').addEventListener('click', (e) => {
+const item = e.target.closest('[data-hub]');
+if (!item) return;
+back.querySelectorAll('.pr-hub-nav .pr-nav-item').forEach((n) => n.classList.toggle('active', n === item));
+back.querySelectorAll('.pr-hub-panel').forEach((p) => {
+p.style.display = p.dataset.hubpanel === item.dataset.hub ? '' : 'none';
+});
+});
 const dirInput = back.querySelector('#pr-bundle-dir');
 (async () => {
 const base = localBase.replace(/\/+$/, '');
@@ -1567,7 +1615,7 @@ else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
 };
 document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
-back.querySelector('input[name="pr-src"]:checked').focus();
+back.querySelector('#pr-list-prefix').focus();
 }
 const CSV_PERM_MAP = {
 '事業場ITセキュリティ責任者': '更新者',

@@ -320,6 +320,31 @@ const css = `
 }
 @keyframes pr-slide{ from{ transform:translateY(-8px); opacity:0; } }
 
+/* ---- settings hub modal (§19: 固定サイズ+端ドラッグでリサイズ可、項目で大きさを変えない) ---- */
+#${ROOT_ID} .pr-modal--hub{
+  width:min(1000px, calc((100vw - 80px) * 2 / 3)) !important;
+  height:calc(100vh - 80px);
+  min-width:640px; min-height:480px;
+  max-height:none;
+  resize:both; overflow:hidden;
+  padding:var(--s-8) 0 var(--s-6) !important;
+}
+#${ROOT_ID} .pr-modal--hub h4{ padding:0 var(--s-9); }
+#${ROOT_ID} .pr-modal--hub .pr-modal-actions{ padding:0 var(--s-9); }
+#${ROOT_ID} .pr-hub-body{
+  flex:1; display:flex; min-height:0;
+  border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+}
+#${ROOT_ID} .pr-hub-nav{
+  flex:none; width:200px; display:flex; flex-direction:column; gap:var(--s-1);
+  background:var(--paper-2); border-right:1px solid var(--line); padding:var(--s-5) 0;
+}
+#${ROOT_ID} .pr-hub-panels{ flex:1; min-width:0; overflow:auto; }
+#${ROOT_ID} .pr-hub-panel{
+  display:flex; flex-direction:column; gap:var(--s-7);
+  padding:var(--s-8) var(--s-9); max-width:640px;
+}
+
 /* ---- modal ---- */
 #${ROOT_ID} .pr-backdrop{
   position:fixed; inset:0; z-index:2147483700;
