@@ -3,7 +3,7 @@
 // 列形式(ユーザー指定):
 //   組織区分第1階層 = 選択肢(Choice)列 OrgLevel1。選択肢 = 有効な第1階層マスタ
 //   第2階層        = 有効なマスタ1件につき はい/いいえ列(内部名 L2_<マスタID> — 改名しても安定)
-//   組織区分第2階層 = 集計(Calculated)列 OrgLevel2。「☑欧州/◽北米/…」形式で表示
+//   組織区分第2階層 = 集計(Calculated)列 OrgLevel2。「☑欧州/☐北米/…」形式で表示
 //
 // 方針: 冪等。マスタの無効化/削除では列を削除しない(既存行のデータ保全)。
 //       無効分は選択肢・集計式から除外されるだけ。マスタ改名は列の表示名に追従する。
@@ -101,14 +101,14 @@ async function syncMastersToUserList(state, log) {
     }
   }
 
-  // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/◽ で連結する式に更新
+  // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
   log('集計列(' + LABEL_L2 + ')を更新中…');
   let expr = '""';
   for (const l1 of [...activeL1].reverse()) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
-    const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
+    const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
       .join('&" / "&');
     expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
   }

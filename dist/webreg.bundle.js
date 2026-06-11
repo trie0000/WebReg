@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-a4e66506" !== 'undefined' ? "0.1.0-a4e66506" : 'dev';
+const BUILD = typeof "0.1.0-2c476ddd" !== 'undefined' ? "0.1.0-2c476ddd" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -276,7 +276,7 @@ let expr = '""';
 for (const l1 of [...activeL1].reverse()) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
-const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
+const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
 .join('&" / "&');
 expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
 }
@@ -1004,7 +1004,7 @@ const USER_COLS = [
 ];
 function userOrg2Text(state, item) {
 return activeL2Of(state, item.OrgLevel1 || '')
-.map((m) => (item['L2_' + m.Id] === true ? '☑' : '◽') + m.Title)
+.map((m) => (item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
 .join(' / ');
 }
 function userColLabel(c) {

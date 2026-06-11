@@ -28,10 +28,10 @@ const USER_COLS = [
   { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 
-// 行の組織区分1に紐づく有効な組織区分2だけを ☑(チェック済)/◽(未チェック)で表示
+// 行の組織区分1に紐づく有効な組織区分2だけを ☑(チェック済)/☐(未チェック)で表示
 function userOrg2Text(state, item) {
   return activeL2Of(state, item.OrgLevel1 || '')
-    .map((m) => (item['L2_' + m.Id] === true ? '☑' : '◽') + m.Title)
+    .map((m) => (item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
     .join(' / ');
 }
 
