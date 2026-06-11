@@ -27,30 +27,53 @@ async function getDigest() {
   return _digest.value;
 }
 
+// 診断ログ: エラーは常時 console.error(送信ボディ+レスポンス全文付き)。
+// 詳細ログ(設定の開発者タブ or localStorage webreg.debug='1')で全リクエストを出力
+function spLog(verb, path, status, ms, reqBody, errBody) {
+  let p = path;
+  try { p = decodeURIComponent(path); } catch { /* ignore */ }
+  const line = '[WebReg] ' + verb + ' ' + p + ' -> ' + status + ' (' + ms + 'ms)';
+  // 404 は存在チェック(リスト/列の有無確認)で正常に発生するため常時出力しない
+  if (errBody != null && status !== 404) {
+    console.error(line +
+      (reqBody != null ? '\n  request: ' + String(reqBody).slice(0, 800) : '') +
+      '\n  response: ' + String(errBody).slice(0, 1500));
+  } else if (isDebug()) {
+    console.log(line + (errBody != null ? ' (存在チェック)' : ''));
+  }
+}
+
 async function sp(method, path, body, headers) {
   const h = Object.assign({ Accept: 'application/json;odata=nometadata' }, headers);
   if (method !== 'GET') {
     h['X-RequestDigest'] = await getDigest();
     if (body != null) h['Content-Type'] = 'application/json;odata=nometadata';
   }
+  const verb = (headers && headers['X-HTTP-Method']) || method;
+  const reqBody = body != null ? JSON.stringify(body) : undefined;
+  const t0 = Date.now();
   const r = await fetch(_webUrl + path, {
     method: method === 'GET' ? 'GET' : 'POST',
     headers: h,
     credentials: 'same-origin',
-    body: body != null ? JSON.stringify(body) : undefined,
+    body: reqBody,
   });
   if (!r.ok) {
     let msg = 'HTTP ' + r.status;
+    let raw = '';
     try {
-      const j = await r.json();
+      raw = await r.text();
+      const j = JSON.parse(raw);
       const m = (j['odata.error'] && j['odata.error'].message && j['odata.error'].message.value)
         || (j.error && j.error.message && (j.error.message.value || j.error.message));
       if (m) msg += ' — ' + m;
     } catch { /* ignore */ }
+    spLog(verb, path, r.status, Date.now() - t0, reqBody, raw || '(本文なし)');
     const e = new Error(msg);
     e.status = r.status;
     throw e;
   }
+  spLog(verb, path, r.status, Date.now() - t0);
   const t = await r.text();
   return t ? JSON.parse(t) : null;
 }
@@ -91,9 +114,16 @@ async function spReorderContentTypeFields(listTitle, orderedInternalNames) {
     credentials: 'same-origin',
     body: xml,
   });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
+  if (!r.ok) {
+    console.error('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) -> HTTP ' + r.status);
+    throw new Error('HTTP ' + r.status);
+  }
   const j = await r.json();
-  if (j && j[0] && j[0].ErrorInfo) throw new Error(j[0].ErrorInfo.ErrorMessage);
+  if (j && j[0] && j[0].ErrorInfo) {
+    console.error('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) エラー:', j[0].ErrorInfo);
+    throw new Error(j[0].ErrorInfo.ErrorMessage);
+  }
+  if (isDebug()) console.log('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) -> OK');
 }
 
 // コレクション型プロパティ(SP.FieldChoice.Choices 等)の更新は verbose 形式が必要になる

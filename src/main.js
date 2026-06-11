@@ -107,6 +107,7 @@
   function setStatus(msg) {
     const f = root.querySelector('.pr-status');
     if (f) f.textContent = msg;
+    if (isDebug()) console.log('[WebReg] status:', msg);
   }
 
   // 操作を直列化しつつ busy 表示。エラーは右上トーストに出す(コピー可)
@@ -117,9 +118,11 @@
     app.style.pointerEvents = 'none';
     setStatus(label + '…');
     try {
+      if (isDebug()) console.log('[WebReg] ' + label + ' 開始');
       await fn();
       setStatus(label + ' 完了');
     } catch (e) {
+      console.error('[WebReg] ' + label + ' 失敗:', e);
       setStatus('エラー: ' + e.message);
       toast('err', label + 'に失敗しました — ' + e.message);
     } finally {

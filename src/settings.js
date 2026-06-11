@@ -64,6 +64,8 @@ function openSettingsModalInner(state, resolve) {
                 <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
                 <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
               </div>
+              <label class="pr-check"><input type="checkbox" id="pr-debug" ${isDebug() ? 'checked' : ''}>
+                詳細ログをブラウザのコンソールに出力(全RESTリクエスト。エラーは常時出力)</label>
               <span class="pr-note">通常運用は「SharePoint」を選べばサーバ類は一切不要です(dist を ドキュメント/webreg/ に配置)。
                 ローカル開発サーバと配信フォルダは開発時のみ使用。配信設定は次回のブックマークレット起動から反映されます。</span>
             </div>
@@ -148,7 +150,9 @@ function openSettingsModalInner(state, resolve) {
       }
     }
 
-    // 開発者: 配信元/ローカルURL/配信フォルダ
+    // 開発者: 詳細ログ/配信元/ローカルURL/配信フォルダ
+    if (back.querySelector('#pr-debug').checked) localStorage.setItem(LS_DEBUG, '1');
+    else localStorage.removeItem(LS_DEBUG);
     const local = back.querySelector('input[name="pr-src"][value="local"]').checked;
     const base = back.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
     if (local) {

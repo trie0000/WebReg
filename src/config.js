@@ -29,6 +29,12 @@ applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['参照者', '更新者'];
 
+// 詳細ログ(コンソール)。エラーは常時出力、'1' なら全リクエストを出力
+const LS_DEBUG = 'webreg.debug';
+const isDebug = () => {
+  try { return localStorage.getItem(LS_DEBUG) === '1'; } catch { return false; }
+};
+
 // 通知/ポーリング
 const POLL_INTERVAL = 30000;
 const LS_NOTIFY_EVENTS = 'webreg.notify.events';

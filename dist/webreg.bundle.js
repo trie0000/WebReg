@@ -22,6 +22,10 @@ LIST_USERS = p + BASE_LIST_USERS;
 applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['参照者', '更新者'];
+const LS_DEBUG = 'webreg.debug';
+const isDebug = () => {
+try { return localStorage.getItem(LS_DEBUG) === '1'; } catch { return false; }
+};
 const POLL_INTERVAL = 30000;
 const LS_NOTIFY_EVENTS = 'webreg.notify.events';
 const LS_NOTIFY_READAT = 'webreg.notify.readAt';
@@ -37,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-fa0f5ead" !== 'undefined' ? "0.1.0-fa0f5ead" : 'dev';
+const BUILD = typeof "0.1.0-14c11915" !== 'undefined' ? "0.1.0-14c11915" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -62,30 +66,49 @@ exp: Date.now() + Math.max(60, (j.FormDigestTimeoutSeconds || 1800) - 60) * 1000
 };
 return _digest.value;
 }
+function spLog(verb, path, status, ms, reqBody, errBody) {
+let p = path;
+try { p = decodeURIComponent(path); } catch { }
+const line = '[WebReg] ' + verb + ' ' + p + ' -> ' + status + ' (' + ms + 'ms)';
+if (errBody != null && status !== 404) {
+console.error(line +
+(reqBody != null ? '\n  request: ' + String(reqBody).slice(0, 800) : '') +
+'\n  response: ' + String(errBody).slice(0, 1500));
+} else if (isDebug()) {
+console.log(line + (errBody != null ? ' (存在チェック)' : ''));
+}
+}
 async function sp(method, path, body, headers) {
 const h = Object.assign({ Accept: 'application/json;odata=nometadata' }, headers);
 if (method !== 'GET') {
 h['X-RequestDigest'] = await getDigest();
 if (body != null) h['Content-Type'] = 'application/json;odata=nometadata';
 }
+const verb = (headers && headers['X-HTTP-Method']) || method;
+const reqBody = body != null ? JSON.stringify(body) : undefined;
+const t0 = Date.now();
 const r = await fetch(_webUrl + path, {
 method: method === 'GET' ? 'GET' : 'POST',
 headers: h,
 credentials: 'same-origin',
-body: body != null ? JSON.stringify(body) : undefined,
+body: reqBody,
 });
 if (!r.ok) {
 let msg = 'HTTP ' + r.status;
+let raw = '';
 try {
-const j = await r.json();
+raw = await r.text();
+const j = JSON.parse(raw);
 const m = (j['odata.error'] && j['odata.error'].message && j['odata.error'].message.value)
 || (j.error && j.error.message && (j.error.message.value || j.error.message));
 if (m) msg += ' — ' + m;
 } catch { }
+spLog(verb, path, r.status, Date.now() - t0, reqBody, raw || '(本文なし)');
 const e = new Error(msg);
 e.status = r.status;
 throw e;
 }
+spLog(verb, path, r.status, Date.now() - t0);
 const t = await r.text();
 return t ? JSON.parse(t) : null;
 }
@@ -122,9 +145,16 @@ headers: { 'Content-Type': 'text/xml', 'X-RequestDigest': await getDigest() },
 credentials: 'same-origin',
 body: xml,
 });
-if (!r.ok) throw new Error('HTTP ' + r.status);
+if (!r.ok) {
+console.error('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) -> HTTP ' + r.status);
+throw new Error('HTTP ' + r.status);
+}
 const j = await r.json();
-if (j && j[0] && j[0].ErrorInfo) throw new Error(j[0].ErrorInfo.ErrorMessage);
+if (j && j[0] && j[0].ErrorInfo) {
+console.error('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) エラー:', j[0].ErrorInfo);
+throw new Error(j[0].ErrorInfo.ErrorMessage);
+}
+if (isDebug()) console.log('[WebReg] CSOM ProcessQuery(FieldLinks Reorder) -> OK');
 }
 async function spMergeVerbose(path, odataType, body) {
 const r = await fetch(_webUrl + path, {
@@ -1518,6 +1548,8 @@ const back = el(`
                 <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
                 <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
               </div>
+              <label class="pr-check"><input type="checkbox" id="pr-debug" ${isDebug() ? 'checked' : ''}>
+                詳細ログをブラウザのコンソールに出力(全RESTリクエスト。エラーは常時出力)</label>
               <span class="pr-note">通常運用は「SharePoint」を選べばサーバ類は一切不要です(dist を ドキュメント/webreg/ に配置)。
                 ローカル開発サーバと配信フォルダは開発時のみ使用。配信設定は次回のブックマークレット起動から反映されます。</span>
             </div>
@@ -1590,6 +1622,8 @@ return;
 }
 }
 }
+if (back.querySelector('#pr-debug').checked) localStorage.setItem(LS_DEBUG, '1');
+else localStorage.removeItem(LS_DEBUG);
 const local = back.querySelector('input[name="pr-src"][value="local"]').checked;
 const base = back.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
 if (local) {
@@ -1979,6 +2013,7 @@ setRoot(root);
 function setStatus(msg) {
 const f = root.querySelector('.pr-status');
 if (f) f.textContent = msg;
+if (isDebug()) console.log('[WebReg] status:', msg);
 }
 async function run(label, fn) {
 if (state.busy) return;
@@ -1987,9 +2022,11 @@ app.style.opacity = '0.55';
 app.style.pointerEvents = 'none';
 setStatus(label + '…');
 try {
+if (isDebug()) console.log('[WebReg] ' + label + ' 開始');
 await fn();
 setStatus(label + ' 完了');
 } catch (e) {
+console.error('[WebReg] ' + label + ' 失敗:', e);
 setStatus('エラー: ' + e.message);
 toast('err', label + 'に失敗しました — ' + e.message);
 } finally {
