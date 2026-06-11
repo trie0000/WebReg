@@ -22,6 +22,7 @@ var nk = 'webreg.' + olds[j].slice('permreg.'.length);
 if (localStorage.getItem(nk) == null) {
 localStorage.setItem(nk, String(localStorage.getItem(olds[j])).replace('/permreg', '/webreg'));
 }
+localStorage.removeItem(olds[j]);
 }
 }
 } catch (e) { }

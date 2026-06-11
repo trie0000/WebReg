@@ -34,6 +34,8 @@
         if (localStorage.getItem(nk) == null) {
           localStorage.setItem(nk, String(localStorage.getItem(olds[j])).replace('/permreg', '/webreg'));
         }
+        // 移行後は旧キーを削除(残すと webreg.* を消したときに古い設定が復活してしまう)
+        localStorage.removeItem(olds[j]);
       }
     }
   } catch (e) { /* ignore */ }

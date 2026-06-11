@@ -34,9 +34,10 @@ const nk = 'webreg.' + k.slice('permreg.'.length);
 if (localStorage.getItem(nk) == null) {
 localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/webreg'));
 }
+localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-fd09d0ec" !== 'undefined' ? "0.1.0-fd09d0ec" : 'dev';
+const BUILD = typeof "0.1.0-d43598c1" !== 'undefined' ? "0.1.0-d43598c1" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1501,7 +1502,8 @@ const back = el(`
                 <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
                 <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
               </div>
-              <span class="pr-note">配信設定は次回のブックマークレット起動から反映されます。</span>
+              <span class="pr-note">通常運用は「SharePoint」を選べばサーバ類は一切不要です(dist を ドキュメント/webreg/ に配置)。
+                ローカル開発サーバと配信フォルダは開発時のみ使用。配信設定は次回のブックマークレット起動から反映されます。</span>
             </div>
           </div>
         </div>
