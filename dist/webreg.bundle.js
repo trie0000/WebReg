@@ -37,7 +37,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-c87e44a4" !== 'undefined' ? "0.1.0-c87e44a4" : 'dev';
+const BUILD = typeof "0.1.0-68cf65bf" !== 'undefined' ? "0.1.0-68cf65bf" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1662,28 +1662,32 @@ return rows.filter((r) => r.some((v) => String(v).trim() !== ''));
 }
 const normHeader = (s) => String(s || '').replace(/[\s　「」]/g, '');
 const CSV_HEADERS = {
-name: '氏名',
-company: '会社名',
-email: 'メールアドレス',
-perm: '権限',
-org1: '組織区分第1階層',
-org2: '組織区分第2階層',
-region: '地域区分',
-retired: '退職者フラグ',
-firstBy: '初回登録者',
-firstAt: '初回登録日時',
-lastBy: '最終更新者',
-lastAt: '最終更新日時',
+name: ['名前', '氏名'],
+company: ['会社名'],
+email: ['メールアドレス'],
+perm: ['権限'],
+org1: ['組織区分第1階層'],
+org2: ['組織区分第2階層'],
+region: ['地域区分'],
+retired: ['退職者フラグ'],
+firstBy: ['初回登録者'],
+firstAt: ['初回登録日時'],
+lastBy: ['最終更新者'],
+lastAt: ['最終更新日時'],
 };
 function buildImportPlan(state, rows) {
 if (rows.length < 3) throw new Error('データ行がありません(1行目ヘッダー/2行目説明/3行目以降データ)');
 const header = rows[0].map(normHeader);
 const idx = {};
-for (const [key, label] of Object.entries(CSV_HEADERS)) {
-idx[key] = header.indexOf(label);
+for (const [key, labels] of Object.entries(CSV_HEADERS)) {
+idx[key] = -1;
+for (const label of labels) {
+const i = header.indexOf(label);
+if (i >= 0) { idx[key] = i; break; }
+}
 }
 for (const required of ['name', 'perm', 'org1']) {
-if (idx[required] < 0) throw new Error('ヘッダー「' + CSV_HEADERS[required] + '」が見つかりません');
+if (idx[required] < 0) throw new Error('ヘッダー「' + CSV_HEADERS[required][0] + '」が見つかりません');
 }
 const cell = (r, key) => (idx[key] >= 0 ? String(r[idx[key]] || '').trim() : '');
 const targets = [];
