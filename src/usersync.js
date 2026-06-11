@@ -116,13 +116,21 @@ async function syncMastersToUserList(state, log) {
     const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') +
       "' && [$L2All] != true, 'true', 'false')";
     if (cvfByInternal.get(internal) !== cond) {
-      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
-        { ClientValidationFormula: cond });
+      try {
+        await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+          { ClientValidationFormula: cond });
+      } catch (e) {
+        summary.condWarn = '条件付き表示(' + internal + '): ' + e.message;
+      }
     }
   }
   // 「すべて」列自体は組織区分1を選んだときだけ表示
-  await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
-    { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" });
+  try {
+    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
+      { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" });
+  } catch (e) {
+    summary.condWarn = '条件付き表示(L2All): ' + e.message;
+  }
 
   // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
@@ -138,16 +146,21 @@ async function syncMastersToUserList(state, log) {
     expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
   }
   const formula = '=' + expr;
-  if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-    const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
-      activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
-    const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
-      " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
-      '<FieldRefs>' + refs + '</FieldRefs></Field>';
-    await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
-    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
-  } else {
-    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+  try {
+    if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
+      const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
+        activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+      const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
+        " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
+        '<FieldRefs>' + refs + '</FieldRefs></Field>';
+      await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
+    } else {
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+    }
+  } catch (e) {
+    // 組織数が多く式が上限を超える場合など。集計列が古いままでも反映自体は続行する
+    summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
   }
 
   await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));

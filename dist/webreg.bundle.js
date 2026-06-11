@@ -37,7 +37,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-68cf65bf" !== 'undefined' ? "0.1.0-68cf65bf" : 'dev';
+const BUILD = typeof "0.1.0-fa0f5ead" !== 'undefined' ? "0.1.0-fa0f5ead" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -294,12 +294,20 @@ if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
 const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') +
 "' && [$L2All] != true, 'true', 'false')";
 if (cvfByInternal.get(internal) !== cond) {
+try {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
 { ClientValidationFormula: cond });
+} catch (e) {
+summary.condWarn = '条件付き表示(' + internal + '): ' + e.message;
 }
 }
+}
+try {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
 { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" });
+} catch (e) {
+summary.condWarn = '条件付き表示(L2All): ' + e.message;
+}
 log('集計列(' + LABEL_L2 + ')を更新中…');
 let expr = '""';
 for (const l1 of [...activeL1].reverse()) {
@@ -312,6 +320,7 @@ const branch = 'IF([組織区分2のすべて],' + allChecked + ',' + perCheck +
 expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
 }
 const formula = '=' + expr;
+try {
 if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
 const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
 activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
@@ -322,6 +331,9 @@ await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { Schema
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
 } else {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+}
+} catch (e) {
+summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
 }
 await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
 const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
@@ -2056,7 +2068,11 @@ if (plan.missingL1.length || plan.missingL2.length) {
 setStatus('未登録マスタを登録中…');
 let order1 = nextOrder(state.l1);
 for (const t of plan.missingL1) {
+try {
 await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+} catch (e) {
+throw new Error(LABEL_L1 + 'マスタ「' + t + '」の登録: ' + e.message);
+}
 order1 += 10;
 }
 if (plan.missingL1.length) await loadAll();
@@ -2064,12 +2080,19 @@ for (const m of plan.missingL2) {
 const l1 = state.l1.find((x) => x.Title === m.l1);
 if (!l1) continue;
 const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
+try {
 await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+} catch (e) {
+throw new Error(LABEL_L2 + 'マスタ「' + m.name + '」の登録: ' + e.message);
+}
 await loadAll();
 }
 }
 setStatus('マスタをリストへ反映中…');
-await syncMastersToUserList(state, setStatus);
+const sres = await syncMastersToUserList(state, setStatus);
+if (sres.formulaWarn) toast('warn', '集計列の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
+if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
+if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
 const needPerms = [...new Set(plan.targets.map((t) => t.permission))]
 .filter((pm) => !state.choices.permission.includes(pm));
 if (needPerms.length) {
@@ -2077,11 +2100,15 @@ const merged = state.choices.permission.concat(needPerms);
 await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
 state.choices = { changeType: state.choices.changeType, permission: merged };
 }
-setStatus('利用者を取込中…');
 const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) || u.Title, u]));
 let added = 0;
 let updated = 0;
+const rowErrors = [];
+let done = 0;
 for (const t of plan.targets) {
+done++;
+setStatus('利用者を取込中… (' + done + '/' + plan.targets.length + ')');
+try {
 const body = buildImportBody(state, t);
 const key = (t.email || '').toLowerCase() || t.name;
 const exist = byKey.get(key);
@@ -2095,10 +2122,18 @@ updated++;
 await addItem(LIST_USERS, body);
 added++;
 }
+} catch (e) {
+rowErrors.push({ name: t.name, msg: e.message });
+}
 }
 await reload();
 toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
 (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
+if (rowErrors.length) {
+toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
+rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
+' — 最初のエラー: ' + rowErrors[0].msg);
+}
 });
 }
 async function userBulkFlow() {

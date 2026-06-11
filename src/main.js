@@ -207,7 +207,11 @@
         setStatus('未登録マスタを登録中…');
         let order1 = nextOrder(state.l1);
         for (const t of plan.missingL1) {
-          await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+          try {
+            await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+          } catch (e) {
+            throw new Error(LABEL_L1 + 'マスタ「' + t + '」の登録: ' + e.message);
+          }
           order1 += 10;
         }
         if (plan.missingL1.length) await loadAll();
@@ -215,13 +219,20 @@
           const l1 = state.l1.find((x) => x.Title === m.l1);
           if (!l1) continue;
           const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
-          await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+          try {
+            await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+          } catch (e) {
+            throw new Error(LABEL_L2 + 'マスタ「' + m.name + '」の登録: ' + e.message);
+          }
           await loadAll();
         }
       }
-      // 2) 列・選択肢・集計式を反映
+      // 2) 列・選択肢・集計式を反映(部分的な失敗は警告にして取込を続行)
       setStatus('マスタをリストへ反映中…');
-      await syncMastersToUserList(state, setStatus);
+      const sres = await syncMastersToUserList(state, setStatus);
+      if (sres.formulaWarn) toast('warn', '集計列の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
+      if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
+      if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
       // 取込権限(閲覧者など)が選択肢に無ければ追加
       const needPerms = [...new Set(plan.targets.map((t) => t.permission))]
         .filter((pm) => !state.choices.permission.includes(pm));
@@ -231,29 +242,41 @@
         state.choices = { changeType: state.choices.changeType, permission: merged };
       }
       // 3) 行のアップサート(キー: メールアドレス、無ければ氏名)
-      setStatus('利用者を取込中…');
       const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) || u.Title, u]));
       let added = 0;
       let updated = 0;
+      const rowErrors = [];
+      let done = 0;
       for (const t of plan.targets) {
-        const body = buildImportBody(state, t);
-        const key = (t.email || '').toLowerCase() || t.name;
-        const exist = byKey.get(key);
-        if (exist) {
-          // 取込内容に無い既存の組織区分2チェックはクリア
-          for (const k of Object.keys(exist)) {
-            if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
+        done++;
+        setStatus('利用者を取込中… (' + done + '/' + plan.targets.length + ')');
+        try {
+          const body = buildImportBody(state, t);
+          const key = (t.email || '').toLowerCase() || t.name;
+          const exist = byKey.get(key);
+          if (exist) {
+            // 取込内容に無い既存の組織区分2チェックはクリア
+            for (const k of Object.keys(exist)) {
+              if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
+            }
+            await updateItem(LIST_USERS, exist.Id, body);
+            updated++;
+          } else {
+            await addItem(LIST_USERS, body);
+            added++;
           }
-          await updateItem(LIST_USERS, exist.Id, body);
-          updated++;
-        } else {
-          await addItem(LIST_USERS, body);
-          added++;
+        } catch (e) {
+          rowErrors.push({ name: t.name, msg: e.message });
         }
       }
       await reload();
       toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
         (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
+      if (rowErrors.length) {
+        toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
+          rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
+          ' — 最初のエラー: ' + rowErrors[0].msg);
+      }
     });
   }
 
