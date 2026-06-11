@@ -61,13 +61,17 @@
 
     if (rest.startsWith('/fields/getbyinternalnameortitle(')) {
       const f = rest.match(/\('([^']*)'\)/)[1];
+      list.fieldProps = list.fieldProps || {};
       if (xm === 'MERGE') {
         if (!list.fields.has(f)) return json(400, { 'odata.error': { message: { value: "列 '" + f + "' が存在しません。" } } });
         if (body && body.Title) list.fields.set(f, body.Title); // 表示名変更
-        return json(204, null); // Choices / Formula 等の更新も 204
+        if (body && body.Choices) (list.fieldProps[f] = list.fieldProps[f] || {}).Choices = body.Choices;
+        if (body && body.Formula) (list.fieldProps[f] = list.fieldProps[f] || {}).Formula = body.Formula;
+        return json(204, null);
       }
       // 実機同様: 存在しない列は 404 ではなく 400 ArgumentException
-      return list.fields.has(f) ? json(200, { Id: newGuid() })
+      return list.fields.has(f)
+        ? json(200, Object.assign({ Id: newGuid(), Title: list.fields.get(f) }, list.fieldProps[f] || {}))
         : json(400, { 'odata.error': { code: '-2147024809, System.ArgumentException', message: { value: "列 '" + f + "' が存在しません。" } } });
     }
     if (rest.startsWith('/fields?') && rest.includes('$filter=InternalName eq')) {
@@ -90,6 +94,11 @@
       const name = xml.match(/ Name='([^']*)'/)[1];
       const disp = (xml.match(/DisplayName='([^']*)'/) || [null, name])[1];
       list.fields.set(name, disp);
+      const choices = [...xml.matchAll(/<CHOICE>([^<]*)<\/CHOICE>/g)].map((m) => m[1]);
+      if (choices.length) {
+        list.fieldProps = list.fieldProps || {};
+        list.fieldProps[name] = { Choices: choices };
+      }
       return json(201, { Id: newGuid() });
     }
     if (rest.startsWith('/defaultview/viewfields/addviewfield(')) {
@@ -128,10 +137,14 @@
         const idx = list.items.findIndex((x) => x.Id === id);
         if (idx < 0) return json(404, {});
         if (xm === 'DELETE') { list.items.splice(idx, 1); return json(204, null); }
-        if (xm === 'MERGE') { Object.assign(list.items[idx], body); return json(204, null); }
+        if (xm === 'MERGE') {
+          Object.assign(list.items[idx], body, { Modified: new Date().toISOString() });
+          return json(204, null);
+        }
       }
       if (method === 'POST' && !xm) {
-        const it = Object.assign({ Id: list.nextId++ }, body);
+        const now = new Date().toISOString();
+        const it = Object.assign({ Id: list.nextId++, Created: now, Modified: now }, body);
         list.items.push(it);
         return json(201, { Id: it.Id });
       }

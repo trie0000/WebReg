@@ -1,6 +1,12 @@
-// 設定モーダル: bundle 配信元(SP/ローカル)・ローカル配信URL・配信フォルダ・バージョン情報。
-// 保存は右下の単一ボタン(§20)。backdrop は mousedown 起点判定、Esc で閉じる(§8/§19)。
-function openSettingsModal() {
+// 設定モーダル: bundle 配信元(SP/ローカル)・ローカル配信URL・配信フォルダ・バージョン情報・
+// 変更区分/権限の選択肢編集。保存は右下の単一ボタン(§20)。閉じたら resolve する Promise を返す。
+function openSettingsModal(state) {
+  return new Promise((resolve) => {
+  openSettingsModalInner(state, resolve);
+  });
+}
+
+function openSettingsModalInner(state, resolve) {
   const srcInfo = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
   const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
   const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
@@ -27,7 +33,16 @@ function openSettingsModal() {
           <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
           <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
-        <span class="pr-note">設定は次回のブックマークレット起動から反映されます(このパネルは再読込されません)。</span>
+        <div class="pr-field">
+          <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
+          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
+        </div>
+        <div class="pr-field">
+          <label>「権限」の選択肢(1行1件)</label>
+          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-pm" rows="3" ${state.usersReady ? '' : 'disabled'}></textarea>
+          ${state.usersReady ? '' : '<span class="pr-note">「リストへ反映」で利用者一覧リストを作成すると編集できます。</span>'}
+        </div>
+        <span class="pr-note">配信設定は次回のブックマークレット起動から反映されます。選択肢は保存時に即反映されます。</span>
         <div class="pr-modal-actions">
           <button class="pr-btn pr-btn--secondary" data-mact="cancel">閉じる</button>
           <button class="pr-btn pr-btn--primary" data-mact="ok">保存</button>
@@ -50,12 +65,40 @@ function openSettingsModal() {
     }
   })();
 
+  // 選択肢の現在値をプリフィル
+  back.querySelector('#pr-choice-ct').value = state.choices.changeType.join('\n');
+  back.querySelector('#pr-choice-pm').value = state.choices.permission.join('\n');
+
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
     back.remove();
+    resolve();
   };
 
   const save = async () => {
+    // 変更区分/権限の選択肢(利用者一覧リストの列 Choices に反映)
+    if (state.usersReady) {
+      const parseLines = (id) => [...new Set(back.querySelector(id).value
+        .split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
+      const ct = parseLines('#pr-choice-ct');
+      const pm = parseLines('#pr-choice-pm');
+      if (!ct.length || !pm.length) {
+        toast('warn', '変更区分/権限の選択肢は1件以上必要です');
+        return;
+      }
+      const changedCt = ct.join('\n') !== state.choices.changeType.join('\n');
+      const changedPm = pm.join('\n') !== state.choices.permission.join('\n');
+      if (changedCt || changedPm) {
+        try {
+          if (changedCt) await setChoices(LIST_USERS, 'ChangeType', '変更区分', ct, true);
+          if (changedPm) await setChoices(LIST_USERS, 'Permission', '権限', pm, true);
+          state.choices = { changeType: ct, permission: pm };
+        } catch (e) {
+          toast('err', '選択肢の更新に失敗しました — ' + e.message);
+          return; // モーダルは開いたまま再試行できる
+        }
+      }
+    }
     const local = back.querySelector('input[name="pr-src"][value="local"]').checked;
     const base = back.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
     if (local) {

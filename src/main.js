@@ -21,6 +21,7 @@
     ready: false,      // マスタリストが存在するか
     usersReady: false, // 利用者一覧リストが存在するか
     users: [],         // 利用者一覧のアイテム
+    choices: { changeType: CHANGE_TYPE_DEFAULTS, permission: PERMISSION_DEFAULTS },
     busy: false,
   };
 
@@ -52,6 +53,18 @@
     state.l1 = r1.value || [];
     state.l2 = r2.value || [];
     state.users = ru.value || [];
+    if (state.usersReady) {
+      try {
+        const [ct, pm] = await Promise.all([
+          spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
+          spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
+        ]);
+        state.choices = {
+          changeType: (ct.Choices && ct.Choices.length) ? ct.Choices : CHANGE_TYPE_DEFAULTS,
+          permission: (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS,
+        };
+      } catch { /* 既定値のまま */ }
+    }
     if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
     if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
   }
@@ -114,6 +127,77 @@
       app.style.opacity = '';
       app.style.pointerEvents = '';
     }
+  }
+
+  // ---------------------------------------------------------------- user flows
+  // フォームでチェックした組織区分2の列が未反映なら、先にマスタを反映する(冪等)
+  async function ensureCheckedL2Cols(body) {
+    const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
+    if (!l2Keys.length) return;
+    const existing = await spGet(lt(LIST_USERS) +
+      "/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
+    const have = new Set((existing.value || []).map((f) => f.InternalName));
+    if (l2Keys.some((k) => !have.has(k))) {
+      setStatus('マスタ未反映分をリストへ反映中…');
+      await syncMastersToUserList(state, setStatus);
+    }
+  }
+
+  async function userAddFlow() {
+    const result = await openUserForm(state, async (body) => {
+      await ensureCheckedL2Cols(body);
+      await addItem(LIST_USERS, body);
+      return body.Title;
+    });
+    if (!result) return;
+    run('登録', async () => {
+      await reload();
+      toast('ok', '「' + result + '」を登録しました');
+    });
+  }
+
+  async function userEditFlow(item) {
+    const result = await openUserForm(state, async (body) => {
+      await ensureCheckedL2Cols(body);
+      await updateItem(LIST_USERS, item.Id, body);
+      return body.Title;
+    }, item);
+    if (!result) return;
+    run('保存', async () => {
+      await reload();
+      toast('ok', '「' + result + '」を保存しました');
+    });
+  }
+
+  async function userBulkFlow() {
+    const ids = [...selectedUserIds];
+    if (!ids.length) return;
+    const changes = await openBulkModal(state, ids.length);
+    if (!changes) return;
+    run('一括変更', async () => {
+      for (const id of ids) await updateItem(LIST_USERS, id, changes);
+      await reload();
+      toast('ok', ids.length + '件を一括変更しました');
+    });
+  }
+
+  async function userDeleteFlow() {
+    const ids = [...selectedUserIds];
+    if (!ids.length) return;
+    const okDel = await modal({
+      title: '物理削除の確認',
+      message: '選択中の ' + ids.length + '件をリストから完全に削除します。この操作は元に戻せません。' +
+        '(復元できる削除は「一括変更」のシステム削除=論理削除を使ってください)',
+      okLabel: '完全に削除する',
+      danger: true,
+    });
+    if (!okDel) return;
+    run('物理削除', async () => {
+      for (const id of ids) await deleteItem(LIST_USERS, id);
+      selectedUserIds.clear();
+      await reload();
+      toast('ok', ids.length + '件を削除しました');
+    });
   }
 
   // ---------------------------------------------------------------- views
@@ -180,7 +264,7 @@
   }
 
   function render() {
-    const views = { users: usersView, master: masterView };
+    const views = { users: usersView, master: masterView, notify: notifyViewHtml };
     const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
         ${label}<small>${sub}</small></button>`;
@@ -199,10 +283,15 @@
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
+          ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'} / ${esc(BUILD)}</div>`;
+
+    if (state.view === 'users') {
+      usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+    }
   }
 
   async function reload() {
@@ -251,7 +340,7 @@
 
     if (act === 'close') { root.remove(); return; }
     if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-    if (act === 'settings') { openSettingsModal(); return; }
+    if (act === 'settings') { openSettingsModal(state).then(render); return; }
     if (act === 'reload') { run('再読込', reload); return; }
     if (act === 'setup') {
       run('セットアップ', async () => {
@@ -263,30 +352,11 @@
     }
     if (act === 'select') { state.selectedL1 = id; render(); return; }
 
-    if (act === 'user-add') {
-      const result = await openUserForm(state, async (body) => {
-        // チェックした第2階層の列がまだリストに無い場合(マスタ追加後に未反映)、
-        // 先にマスタを反映してから登録する(冪等なので安全)
-        const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
-        if (l2Keys.length) {
-          const existing = await spGet(lt(LIST_USERS) +
-            "/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
-          const have = new Set((existing.value || []).map((f) => f.InternalName));
-          if (l2Keys.some((k) => !have.has(k))) {
-            setStatus('マスタ未反映分をリストへ反映中…');
-            await syncMastersToUserList(state, setStatus);
-          }
-        }
-        await addItem(LIST_USERS, body);
-        return body.Title;
-      });
-      if (!result) return;
-      run('登録', async () => {
-        await reload();
-        toast('ok', '「' + result + '」を登録しました');
-      });
-      return;
-    }
+    if (act === 'user-add') { userAddFlow(); return; }
+    if (act === 'user-bulk') { userBulkFlow(); return; }
+    if (act === 'user-del-selected') { userDeleteFlow(); return; }
+    if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
+    if (act === 'notify-read') { notifyMarkRead(); render(); return; }
 
     if (act === 'sync-users') {
       const activeL1 = state.l1.filter((x) => x.Active !== false);
@@ -424,4 +494,25 @@
   run('読込', reload);
   window.__permreg = { state, build: BUILD };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
+
+  // 利用者一覧の定期ポーリング(他ユーザーの変更検知→通知)。新インスタンス起動時に旧タイマー停止
+  if (window.__permregUsersPoll) clearInterval(window.__permregUsersPoll);
+  const pollUsers = async () => {
+    if (document.hidden || state.busy || !state.usersReady) return;
+    if (root.querySelector('.pr-backdrop')) return; // モーダル操作中は触らない
+    try {
+      const r = await spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999');
+      const next = r.value || [];
+      const events = diffUsers(state.users, next);
+      if (!events.length) return;
+      notifyAdd(events);
+      state.users = next;
+      // 入力中(フォーカスが入力要素)なら再描画しない(次の操作/検知で反映)
+      const ae = document.activeElement;
+      if (ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+      render();
+    } catch { /* 次回再試行 */ }
+  };
+  window.__permregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
+  window.__permregPollNow = pollUsers; // テスト/手動確認用
 })();

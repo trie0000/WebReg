@@ -44,8 +44,8 @@ async function ensureUserList(log) {
   await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Title')", { Title: '利用者名' });
   await ensureField(LIST_USERS, 'Company', '会社名', { FieldTypeKind: 2 });
   await ensureField(LIST_USERS, 'Email', 'メールアドレス', { FieldTypeKind: 2 });
-  await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', ['新規', '変更', '削除', '変更なし'], true);
-  await createChoiceField(LIST_USERS, 'Permission', '権限', ['参照者', '更新者'], true);
+  await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', CHANGE_TYPE_DEFAULTS, true);
+  await createChoiceField(LIST_USERS, 'Permission', '権限', PERMISSION_DEFAULTS, true);
   await ensureField(LIST_USERS, 'Notes', '特記事項', { FieldTypeKind: 3 });
   await ensureField(LIST_USERS, 'AppliedDate', 'システム反映日', { FieldTypeKind: 4 });
   await ensureField(LIST_USERS, 'SystemDeleted', 'システム削除', { FieldTypeKind: 8, DefaultValue: '0' });
@@ -105,7 +105,7 @@ async function syncMastersToUserList(state, log) {
   log('集計列(' + LABEL_L2 + ')を更新中…');
   const formula = activeL2.length
     ? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
-      .join('&"/"&')
+      .join('&" / "&')
     : '=""';
   if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
     const refs = activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');

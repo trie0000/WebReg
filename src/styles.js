@@ -205,18 +205,67 @@ const css = `
 #${ROOT_ID} .pr-kv{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
 
-/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2) ---- */
-#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); }
+/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2 / チェック列34px固定) ---- */
+#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed; }
 #${ROOT_ID} .pr-utable th{
-  position:sticky; top:0; background:var(--paper-2); text-align:left; font-weight:600;
+  position:sticky; top:0; z-index:1; background:var(--paper-2); text-align:left; font-weight:600;
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
-  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+  font-size:var(--fs-sm); color:var(--ink-3);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  -webkit-user-select:none; user-select:none;
 }
+#${ROOT_ID} .pr-utable th.pr-th-sort{ cursor:pointer; }
+#${ROOT_ID} .pr-utable th.pr-th-sort:hover{ background:var(--paper-2-strong); color:var(--ink); }
+#${ROOT_ID} .pr-utable th.active{ color:var(--ink); }
 #${ROOT_ID} .pr-utable td{
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
-  overflow-wrap:anywhere; vertical-align:top;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:top;
 }
+#${ROOT_ID} .pr-utable tbody tr{ cursor:pointer; }
 #${ROOT_ID} .pr-utable tbody tr:hover{ background:var(--paper-2); }
+#${ROOT_ID} .pr-utable .pr-udel td{ color:var(--ink-4); }
+#${ROOT_ID} .pr-uchk{ width:34px; text-align:center; padding:var(--s-4) var(--s-2) !important; }
+#${ROOT_ID} .pr-uchk input{ width:14px; height:14px; accent-color:var(--accent); cursor:pointer; margin:0; }
+
+/* 列幅変更ハンドル(th 右端 6px — Spira と同仕様) */
+#${ROOT_ID} .pr-col-resize{
+  position:absolute; top:0; right:0; width:6px; height:100%;
+  cursor:col-resize; -webkit-user-select:none; user-select:none;
+  background:transparent; transition:background .1s; z-index:2;
+}
+#${ROOT_ID} .pr-col-resize:hover, #${ROOT_ID} .pr-col-resize.dragging{ background:var(--accent-soft); }
+
+/* バッジ(NEW/更新/削除済) */
+#${ROOT_ID} .pr-badge{
+  display:inline-block; font-size:var(--fs-xs); font-family:var(--font-mono);
+  border-radius:var(--r-2); padding:0 var(--s-2); margin-right:var(--s-2); line-height:1.6;
+}
+#${ROOT_ID} .pr-badge--new{ background:var(--accent); color:#ffffff; }
+#${ROOT_ID} .pr-badge--upd{ background:var(--warn); color:#ffffff; }
+#${ROOT_ID} .pr-badge--del{ background:var(--paper-3); color:var(--ink-3); }
+
+/* 通知ナビバッジ(.pr-nav-item * の上書きより後に置くこと) */
+#${ROOT_ID} .pr-navbadge{
+  display:inline-block !important; margin-left:var(--s-2) !important;
+  background:var(--accent) !important; color:#ffffff !important;
+  border-radius:999px !important; padding:0 var(--s-3) !important;
+  font-size:var(--fs-xs) !important; line-height:1.7 !important;
+}
+
+/* 通知ビュー */
+#${ROOT_ID} .pr-notif{
+  display:flex; align-items:center; gap:var(--s-3);
+  padding:var(--s-3) var(--gutter); border-bottom:1px solid var(--line);
+}
+#${ROOT_ID} .pr-notif.unread{ background:var(--accent-soft); }
+#${ROOT_ID} .pr-notif-time{ font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--ink-3); width:84px; flex:none; }
+#${ROOT_ID} .pr-notif-msg{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* 利用者一覧のサブバー(選択時もレイアウトシフトさせない §1.4)とフィルタツールバー */
+#${ROOT_ID} .pr-sub--users{ min-height:46px; align-items:center; }
+#${ROOT_ID} .pr-toolbar--users #pr-ufilter-q{ flex:1; min-width:120px; }
+#${ROOT_ID} .pr-toolbar--users .pr-fsel{ flex:none !important; width:130px !important; }
+#${ROOT_ID} .pr-toolbar--users .pr-check{ flex:none; }
 
 /* ---- user form ---- */
 #${ROOT_ID} .pr-modal--form{ width:min(640px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
@@ -272,6 +321,7 @@ const css = `
 #${ROOT_ID} .pr-modal h4{ margin:0; font-size:var(--fs-lg); font-weight:600; line-height:var(--lh-tight); }
 #${ROOT_ID} .pr-modal .pr-modal-msg{ font-size:var(--fs-md); color:var(--ink-3); user-select:text; }
 #${ROOT_ID} .pr-modal .pr-input{ min-height:34px !important; }
+#${ROOT_ID} .pr-modal .pr-ta-sm{ min-height:80px !important; }
 #${ROOT_ID} .pr-modal .pr-modal-ta{
   min-height:160px !important; max-height:55vh !important;
   padding:var(--s-3) var(--s-4) var(--s-5) !important;

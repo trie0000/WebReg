@@ -8,9 +8,14 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
+const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
+const PERMISSION_DEFAULTS = ['参照者', '更新者'];
+const POLL_INTERVAL = 30000;
+const LS_NOTIFY_EVENTS = 'permreg.notify.events';
+const LS_NOTIFY_READAT = 'permreg.notify.readAt';
 const LABEL_L1 = '組織区分1';
 const LABEL_L2 = '組織区分2';
-const BUILD = typeof "0.1.0-d7ed3288" !== 'undefined' ? "0.1.0-d7ed3288" : 'dev';
+const BUILD = typeof "0.1.0-6490b90c" !== 'undefined' ? "0.1.0-6490b90c" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -212,8 +217,8 @@ await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Descript
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Title')", { Title: '利用者名' });
 await ensureField(LIST_USERS, 'Company', '会社名', { FieldTypeKind: 2 });
 await ensureField(LIST_USERS, 'Email', 'メールアドレス', { FieldTypeKind: 2 });
-await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', ['新規', '変更', '削除', '変更なし'], true);
-await createChoiceField(LIST_USERS, 'Permission', '権限', ['参照者', '更新者'], true);
+await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', CHANGE_TYPE_DEFAULTS, true);
+await createChoiceField(LIST_USERS, 'Permission', '権限', PERMISSION_DEFAULTS, true);
 await ensureField(LIST_USERS, 'Notes', '特記事項', { FieldTypeKind: 3 });
 await ensureField(LIST_USERS, 'AppliedDate', 'システム反映日', { FieldTypeKind: 4 });
 await ensureField(LIST_USERS, 'SystemDeleted', 'システム削除', { FieldTypeKind: 8, DefaultValue: '0' });
@@ -260,7 +265,7 @@ summary.renamed++;
 log('集計列(' + LABEL_L2 + ')を更新中…');
 const formula = activeL2.length
 ? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
-.join('&"/"&')
+.join('&" / "&')
 : '=""';
 if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
 const refs = activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
@@ -526,18 +531,62 @@ const css = `
 #${ROOT_ID} .pr-radio input{ accent-color:var(--accent); margin:0; }
 #${ROOT_ID} .pr-kv{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
-/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2) ---- */
-#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); }
+/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2 / チェック列34px固定) ---- */
+#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed; }
 #${ROOT_ID} .pr-utable th{
-  position:sticky; top:0; background:var(--paper-2); text-align:left; font-weight:600;
+  position:sticky; top:0; z-index:1; background:var(--paper-2); text-align:left; font-weight:600;
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
-  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+  font-size:var(--fs-sm); color:var(--ink-3);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  -webkit-user-select:none; user-select:none;
 }
+#${ROOT_ID} .pr-utable th.pr-th-sort{ cursor:pointer; }
+#${ROOT_ID} .pr-utable th.pr-th-sort:hover{ background:var(--paper-2-strong); color:var(--ink); }
+#${ROOT_ID} .pr-utable th.active{ color:var(--ink); }
 #${ROOT_ID} .pr-utable td{
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
-  overflow-wrap:anywhere; vertical-align:top;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:top;
 }
+#${ROOT_ID} .pr-utable tbody tr{ cursor:pointer; }
 #${ROOT_ID} .pr-utable tbody tr:hover{ background:var(--paper-2); }
+#${ROOT_ID} .pr-utable .pr-udel td{ color:var(--ink-4); }
+#${ROOT_ID} .pr-uchk{ width:34px; text-align:center; padding:var(--s-4) var(--s-2) !important; }
+#${ROOT_ID} .pr-uchk input{ width:14px; height:14px; accent-color:var(--accent); cursor:pointer; margin:0; }
+/* 列幅変更ハンドル(th 右端 6px — Spira と同仕様) */
+#${ROOT_ID} .pr-col-resize{
+  position:absolute; top:0; right:0; width:6px; height:100%;
+  cursor:col-resize; -webkit-user-select:none; user-select:none;
+  background:transparent; transition:background .1s; z-index:2;
+}
+#${ROOT_ID} .pr-col-resize:hover, #${ROOT_ID} .pr-col-resize.dragging{ background:var(--accent-soft); }
+/* バッジ(NEW/更新/削除済) */
+#${ROOT_ID} .pr-badge{
+  display:inline-block; font-size:var(--fs-xs); font-family:var(--font-mono);
+  border-radius:var(--r-2); padding:0 var(--s-2); margin-right:var(--s-2); line-height:1.6;
+}
+#${ROOT_ID} .pr-badge--new{ background:var(--accent); color:#ffffff; }
+#${ROOT_ID} .pr-badge--upd{ background:var(--warn); color:#ffffff; }
+#${ROOT_ID} .pr-badge--del{ background:var(--paper-3); color:var(--ink-3); }
+/* 通知ナビバッジ(.pr-nav-item * の上書きより後に置くこと) */
+#${ROOT_ID} .pr-navbadge{
+  display:inline-block !important; margin-left:var(--s-2) !important;
+  background:var(--accent) !important; color:#ffffff !important;
+  border-radius:999px !important; padding:0 var(--s-3) !important;
+  font-size:var(--fs-xs) !important; line-height:1.7 !important;
+}
+/* 通知ビュー */
+#${ROOT_ID} .pr-notif{
+  display:flex; align-items:center; gap:var(--s-3);
+  padding:var(--s-3) var(--gutter); border-bottom:1px solid var(--line);
+}
+#${ROOT_ID} .pr-notif.unread{ background:var(--accent-soft); }
+#${ROOT_ID} .pr-notif-time{ font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--ink-3); width:84px; flex:none; }
+#${ROOT_ID} .pr-notif-msg{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* 利用者一覧のサブバー(選択時もレイアウトシフトさせない §1.4)とフィルタツールバー */
+#${ROOT_ID} .pr-sub--users{ min-height:46px; align-items:center; }
+#${ROOT_ID} .pr-toolbar--users #pr-ufilter-q{ flex:1; min-width:120px; }
+#${ROOT_ID} .pr-toolbar--users .pr-fsel{ flex:none !important; width:130px !important; }
+#${ROOT_ID} .pr-toolbar--users .pr-check{ flex:none; }
 /* ---- user form ---- */
 #${ROOT_ID} .pr-modal--form{ width:min(640px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
 #${ROOT_ID} .pr-req{ color:var(--danger); }
@@ -589,6 +638,7 @@ const css = `
 #${ROOT_ID} .pr-modal h4{ margin:0; font-size:var(--fs-lg); font-weight:600; line-height:var(--lh-tight); }
 #${ROOT_ID} .pr-modal .pr-modal-msg{ font-size:var(--fs-md); color:var(--ink-3); user-select:text; }
 #${ROOT_ID} .pr-modal .pr-input{ min-height:34px !important; }
+#${ROOT_ID} .pr-modal .pr-ta-sm{ min-height:80px !important; }
 #${ROOT_ID} .pr-modal .pr-modal-ta{
   min-height:160px !important; max-height:55vh !important;
   padding:var(--s-3) var(--s-4) var(--s-5) !important;
@@ -688,6 +738,224 @@ _root.appendChild(back);
 if (input) input.select();
 });
 }
+const GRID_W = 'permreg.colw.';
+const GRID_O = 'permreg.colorder.';
+const GRID_S = 'permreg.sort.';
+function gridColWidth(tableKey, colKey, fallback) {
+const v = parseInt(localStorage.getItem(GRID_W + tableKey + ':' + colKey) || '', 10);
+return Number.isFinite(v) ? v + 'px' : fallback;
+}
+function gridWriteWidth(tableKey, colKey, w) {
+localStorage.setItem(GRID_W + tableKey + ':' + colKey, String(w));
+}
+function gridRemoveWidth(tableKey, colKey) {
+localStorage.removeItem(GRID_W + tableKey + ':' + colKey);
+}
+function gridResolveOrder(tableKey, defaultKeys) {
+let saved = null;
+try {
+saved = JSON.parse(localStorage.getItem(GRID_O + tableKey) || 'null');
+} catch { }
+if (!Array.isArray(saved)) return [...defaultKeys];
+const known = new Set(defaultKeys);
+const ordered = saved.filter((k) => known.has(k));
+for (let i = 0; i < defaultKeys.length; i++) {
+const k = defaultKeys[i];
+if (ordered.includes(k)) continue;
+let insertAt = null;
+for (let j = i - 1; j >= 0; j--) {
+const idx = ordered.indexOf(defaultKeys[j]);
+if (idx >= 0) { insertAt = idx + 1; break; }
+}
+if (insertAt == null) {
+for (let j = i + 1; j < defaultKeys.length; j++) {
+const idx = ordered.indexOf(defaultKeys[j]);
+if (idx >= 0) { insertAt = idx; break; }
+}
+}
+ordered.splice(insertAt == null ? ordered.length : insertAt, 0, k);
+}
+return ordered;
+}
+function gridWriteOrder(tableKey, keys) {
+localStorage.setItem(GRID_O + tableKey, JSON.stringify(keys));
+}
+function gridResetOrder(tableKey) {
+localStorage.removeItem(GRID_O + tableKey);
+}
+function gridSort(tableKey, defaultBy) {
+try {
+const v = JSON.parse(localStorage.getItem(GRID_S + tableKey) || 'null');
+if (v && v.by) return v;
+} catch { }
+return { by: defaultBy, dir: 'desc' };
+}
+function gridSetSort(tableKey, by, dir) {
+localStorage.setItem(GRID_S + tableKey, JSON.stringify({ by, dir }));
+}
+function attachGrid(table, opts) {
+const cols = [...table.querySelectorAll('colgroup col')];
+const ths = [...table.querySelectorAll('thead th')];
+const minWidth = opts.minWidth || 48;
+ths.forEach((th, i) => {
+const key = opts.colKeys[i];
+if (!key) return;
+th.style.position = 'relative';
+const handle = document.createElement('span');
+handle.className = 'pr-col-resize';
+handle.setAttribute('aria-hidden', 'true');
+th.appendChild(handle);
+handle.addEventListener('pointerdown', (e) => {
+e.preventDefault();
+e.stopPropagation();
+const startX = e.clientX;
+const col = cols[i];
+cols.forEach((c, ci) => {
+if (ci !== i && !c.style.width && ths[ci]) {
+c.style.width = Math.round(ths[ci].getBoundingClientRect().width) + 'px';
+}
+});
+const startW = th.getBoundingClientRect().width;
+document.body.style.cursor = 'col-resize';
+handle.classList.add('dragging');
+const onMove = (ev) => {
+const w = Math.max(minWidth, Math.round(startW + ev.clientX - startX));
+if (col) col.style.width = w + 'px';
+};
+const onUp = () => {
+document.removeEventListener('pointermove', onMove);
+document.removeEventListener('pointerup', onUp);
+document.body.style.cursor = '';
+handle.classList.remove('dragging');
+gridWriteWidth(opts.tableKey, key, Math.round(th.getBoundingClientRect().width));
+};
+document.addEventListener('pointermove', onMove);
+document.addEventListener('pointerup', onUp);
+});
+handle.addEventListener('dblclick', (e) => {
+e.preventDefault();
+e.stopPropagation();
+if (cols[i]) cols[i].style.width = '';
+gridRemoveWidth(opts.tableKey, key);
+});
+th.title = 'ドラッグで列順変更 / クリックで並び替え / 右クリックで列順リセット';
+th.addEventListener('pointerdown', (e) => {
+if (e.button !== 0 || e.target === handle) return;
+const startX = e.clientX;
+let dragging = false;
+const mark = (t) => {
+ths.forEach((h) => { h.style.boxShadow = ''; });
+if (t && t !== th && opts.colKeys[ths.indexOf(t)]) {
+t.style.boxShadow = 'inset 2px 0 0 0 var(--accent)';
+}
+};
+const targetTh = (ev) => {
+const n = document.elementFromPoint(ev.clientX, ev.clientY);
+const t = n && n.closest('th');
+return t && ths.includes(t) ? t : null;
+};
+const onMove = (ev) => {
+if (!dragging && Math.abs(ev.clientX - startX) > 6) {
+dragging = true;
+th.style.opacity = '0.5';
+document.body.style.cursor = 'grabbing';
+}
+if (dragging) mark(targetTh(ev));
+};
+const onUp = (ev) => {
+document.removeEventListener('pointermove', onMove);
+document.removeEventListener('pointerup', onUp);
+mark(null);
+th.style.opacity = '';
+document.body.style.cursor = '';
+if (!dragging) return;
+table.dataset.dragJustEnded = '1';
+setTimeout(() => { delete table.dataset.dragJustEnded; }, 0);
+const t = targetTh(ev);
+const toKey = t && t !== th ? opts.colKeys[ths.indexOf(t)] : null;
+if (toKey) opts.onReorder(key, toKey);
+};
+document.addEventListener('pointermove', onMove);
+document.addEventListener('pointerup', onUp);
+});
+th.addEventListener('contextmenu', (e) => {
+e.preventDefault();
+gridResetOrder(opts.tableKey);
+opts.onReorder(null, null);
+});
+});
+}
+function notifyReadAt() {
+return +(localStorage.getItem(LS_NOTIFY_READAT) || 0);
+}
+function notifyMarkRead() {
+localStorage.setItem(LS_NOTIFY_READAT, String(Date.now()));
+}
+function notifyEvents() {
+try {
+const v = JSON.parse(localStorage.getItem(LS_NOTIFY_EVENTS) || '[]');
+return Array.isArray(v) ? v : [];
+} catch {
+return [];
+}
+}
+function notifyAdd(events) {
+if (!events.length) return;
+localStorage.setItem(LS_NOTIFY_EVENTS, JSON.stringify(events.concat(notifyEvents()).slice(0, 50)));
+}
+function notifyUnreadCount() {
+const r = notifyReadAt();
+return notifyEvents().filter((e) => e.ts > r).length;
+}
+function userBadge(u, readAt) {
+const created = Date.parse(u.Created || '') || 0;
+const modified = Date.parse(u.Modified || '') || 0;
+if (created > readAt) return 'new';
+if (modified > readAt) return 'upd';
+return null;
+}
+function diffUsers(prev, next) {
+const ts = Date.now();
+const prevMap = new Map(prev.map((x) => [x.Id, x]));
+const nextIds = new Set(next.map((x) => x.Id));
+const events = [];
+for (const n of next) {
+const p = prevMap.get(n.Id);
+if (!p) events.push({ ts, kind: 'new', title: n.Title || ('#' + n.Id) });
+else if (p.Modified !== n.Modified) events.push({ ts, kind: 'upd', title: n.Title || ('#' + n.Id) });
+}
+for (const p of prev) {
+if (!nextIds.has(p.Id)) events.push({ ts, kind: 'del', title: p.Title || ('#' + p.Id) });
+}
+return events;
+}
+function notifyViewHtml() {
+const events = notifyEvents();
+const readAt = notifyReadAt();
+const kindChip = (k) => k === 'new'
+? '<span class="pr-badge pr-badge--new">NEW</span>'
+: k === 'upd'
+? '<span class="pr-badge pr-badge--upd">更新</span>'
+: '<span class="pr-badge pr-badge--del">削除</span>';
+const kindText = { new: 'が追加されました', upd: 'が更新されました', del: 'が削除されました' };
+const fmt = (ts) => {
+const d = new Date(ts);
+const pad = (n) => String(n).padStart(2, '0');
+return d.getMonth() + 1 + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+};
+const rows = events.map((e) => `
+    <div class="pr-notif${e.ts > readAt ? ' unread' : ''}">
+      <span class="pr-notif-time">${fmt(e.ts)}</span>
+      ${kindChip(e.kind)}
+      <span class="pr-notif-msg">「${esc(e.title)}」${kindText[e.kind] || ''}</span>
+    </div>`).join('');
+return `
+    <div class="pr-sub"><b>通知</b><span class="pr-count">${events.length}件 / 未読 ${notifyUnreadCount()}件</span>
+      <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--ghost pr-btn--sm" data-act="notify-read">すべて既読にする</button>
+    </div>
+    <div class="pr-rows">${rows || '<div class="pr-empty">通知はありません。「' + esc(LIST_USERS) + '」の追加・更新・削除を検知するとここに表示されます。</div>'}</div>`;
+}
 function activeL2Of(state, l1Title) {
 const l1 = state.l1.find((x) => x.Title === l1Title && x.Active !== false);
 if (!l1) return [];
@@ -695,33 +963,65 @@ return state.l2
 .filter((x) => x.Active !== false && x.Level1 && x.Level1.Id === l1.Id)
 .sort((a, b) => ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
 }
-function usersTableHtml(state) {
-const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', LABEL_L1, LABEL_L2];
-const l2ById = new Map(state.l2.map((x) => [x.Id, x]));
-const checkedOf = (item) => {
+const USERS_GRID_KEY = 'users';
+const selectedUserIds = new Set();
+const userFilter = { q: '', changeType: '', permission: '', org1: '', showDeleted: false };
+const USER_COLS = [
+{ key: 'name', label: '利用者名', w: '160px', val: (u) => u.Title || '' },
+{ key: 'company', label: '会社名', w: '140px', val: (u) => u.Company || '' },
+{ key: 'email', label: 'メールアドレス', w: '180px', val: (u) => u.Email || '' },
+{ key: 'changeType', label: '変更区分', w: '90px', val: (u) => u.ChangeType || '' },
+{ key: 'permission', label: '権限', w: '90px', val: (u) => u.Permission || '' },
+{ key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },
+{ key: 'org2', label: '', w: '220px', val: null },
+{ key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
+];
+function userOrg2Text(state, item) {
 const names = [];
-for (const [id, m] of l2ById) {
-if (item['L2_' + id] === true) names.push('☑' + m.Title);
+for (const m of state.l2) {
+if (item['L2_' + m.Id] === true) names.push('☑' + m.Title);
 }
-return names.join('/');
-};
-const rows = state.users.map((u) => `
-    <tr>
-      <td>${esc(u.Title)}</td>
-      <td>${esc(u.Company)}</td>
-      <td>${esc(u.Email)}</td>
-      <td>${esc(u.ChangeType)}</td>
-      <td>${esc(u.Permission)}</td>
-      <td>${esc(u.OrgLevel1)}</td>
-      <td>${esc(checkedOf(u)) || '—'}</td>
-    </tr>`).join('');
-return `
-    <div class="pr-rows">
-      <table class="pr-utable">
-        <thead><tr>${head.map((h) => '<th>' + h + '</th>').join('')}</tr></thead>
-        <tbody>${rows || '<tr><td colspan="7" class="pr-empty">未登録</td></tr>'}</tbody>
-      </table>
-    </div>`;
+return names.join(' / ');
+}
+function userColLabel(c) {
+if (c.key === 'org1') return LABEL_L1;
+if (c.key === 'org2') return LABEL_L2;
+return c.label;
+}
+function userCellText(state, c, u) {
+if (c.key === 'org2') return userOrg2Text(state, u);
+if (c.key === 'modified') {
+const d = new Date(u.Modified || '');
+if (isNaN(+d)) return '';
+const pad = (n) => String(n).padStart(2, '0');
+return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' +
+pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+return c.val(u);
+}
+function visibleUsers(state) {
+const f = userFilter;
+const q = f.q.trim().toLowerCase();
+let list = state.users.filter((u) => {
+if (!f.showDeleted && u.SystemDeleted === true) return false;
+if (f.changeType && u.ChangeType !== f.changeType) return false;
+if (f.permission && u.Permission !== f.permission) return false;
+if (f.org1 && u.OrgLevel1 !== f.org1) return false;
+if (q) {
+const hay = USER_COLS.map((c) => userCellText(state, c, u)).join(' ').toLowerCase();
+if (!hay.includes(q)) return false;
+}
+return true;
+});
+const s = gridSort(USERS_GRID_KEY, 'modified');
+const col = USER_COLS.find((c) => c.key === s.by) || USER_COLS[USER_COLS.length - 1];
+const dir = s.dir === 'asc' ? 1 : -1;
+list = [...list].sort((a, b) => {
+const va = userCellText(state, col, a);
+const vb = userCellText(state, col, b);
+return va.localeCompare(vb, 'ja') * dir || (a.Id - b.Id) * dir;
+});
+return list;
 }
 function usersViewHtml(state) {
 if (!state.usersReady) {
@@ -732,32 +1032,159 @@ return `
         <button class="pr-btn pr-btn--primary" data-act="nav" data-view="master">マスタ管理を開く</button>
       </div>`;
 }
+const ids = new Set(state.users.map((u) => u.Id));
+for (const id of [...selectedUserIds]) if (!ids.has(id)) selectedUserIds.delete(id);
+const list = visibleUsers(state);
+const readAt = notifyReadAt();
+const sel = selectedUserIds.size;
+const sort = gridSort(USERS_GRID_KEY, 'modified');
+const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
+const cols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean);
+const selOpts = (opts, cur) => '<option value="">すべて</option>' +
+opts.map((o) => '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
+const org1Opts = state.l1.filter((x) => x.Active !== false).map((x) => x.Title);
+const badgeHtml = (u) => {
+const parts = [];
+const b = userBadge(u, readAt);
+if (b === 'new') parts.push('<span class="pr-badge pr-badge--new">NEW</span>');
+if (b === 'upd') parts.push('<span class="pr-badge pr-badge--upd">更新</span>');
+if (u.SystemDeleted === true) parts.push('<span class="pr-badge pr-badge--del">削除済</span>');
+return parts.join('');
+};
+const thHtml = cols.map((c) => {
+const active = sort.by === c.key;
+const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
+esc(userColLabel(c)) + arrow + '</th>';
+}).join('');
+const rowHtml = (u) => `
+    <tr data-uid="${u.Id}" class="${u.SystemDeleted === true ? 'pr-udel' : ''}">
+      <td class="pr-uchk"><input type="checkbox" data-usel="${u.Id}" aria-label="選択" ${selectedUserIds.has(u.Id) ? 'checked' : ''}></td>
+      ${cols.map((c) => '<td>' + (c.key === 'name' ? badgeHtml(u) : '') + esc(userCellText(state, c, u)) + '</td>').join('')}
+    </tr>`;
 return `
-    <div class="pr-sub"><b>利用者一覧</b><span class="pr-count">${state.users.length}件</span></div>
-    <div class="pr-toolbar">
+    <div class="pr-sub pr-sub--users">
+      ${sel
+? `<b>選択中 ${sel}件</b>
+           <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="user-bulk">一括変更</button>
+           <button class="pr-btn pr-btn--sm pr-btn--danger" data-act="user-del-selected">物理削除</button>
+           <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
+: `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
-      <button class="pr-btn pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
+      <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
     </div>
-    ${usersTableHtml(state)}`;
+    <div class="pr-toolbar pr-toolbar--users">
+      <input type="text" class="pr-input" id="pr-ufilter-q" placeholder="検索(全列)" value="${esc(userFilter.q)}">
+      <select class="pr-input pr-fsel" id="pr-ufilter-ct" title="変更区分">${selOpts(state.choices.changeType, userFilter.changeType)}</select>
+      <select class="pr-input pr-fsel" id="pr-ufilter-pm" title="権限">${selOpts(state.choices.permission, userFilter.permission)}</select>
+      <select class="pr-input pr-fsel" id="pr-ufilter-o1" title="${esc(LABEL_L1)}">${selOpts(org1Opts, userFilter.org1)}</select>
+      <label class="pr-check"><input type="checkbox" id="pr-ufilter-del" ${userFilter.showDeleted ? 'checked' : ''}>削除済も表示</label>
+    </div>
+    <div class="pr-rows">
+      <table class="pr-utable" data-grid="users">
+        <colgroup>
+          <col style="width:34px">
+          ${cols.map((c) => '<col style="width:' + gridColWidth(USERS_GRID_KEY, c.key, c.w) + '">').join('')}
+        </colgroup>
+        <thead><tr>
+          <th class="pr-uchk"><input type="checkbox" data-usel-all aria-label="すべて選択" ${list.length && list.every((u) => selectedUserIds.has(u.Id)) ? 'checked' : ''}></th>
+          ${thHtml}
+        </tr></thead>
+        <tbody>${list.map(rowHtml).join('') ||
+'<tr><td colspan="' + (cols.length + 1) + '" class="pr-empty">該当する利用者がありません</td></tr>'}</tbody>
+      </table>
+    </div>`;
 }
-function openUserForm(state, onSubmit) {
+function usersAfterRender(app, state, ctx) {
+const table = app.querySelector('.pr-utable[data-grid="users"]');
+if (!table) return;
+const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
+attachGrid(table, {
+tableKey: USERS_GRID_KEY,
+colKeys: [null].concat(order),
+onReorder: (fromKey, toKey) => {
+if (fromKey && toKey) {
+const cur = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
+cur.splice(cur.indexOf(toKey), 0, cur.splice(cur.indexOf(fromKey), 1)[0]);
+gridWriteOrder(USERS_GRID_KEY, cur);
+}
+ctx.rerender();
+},
+});
+table.querySelector('thead').addEventListener('click', (e) => {
+if (table.dataset.dragJustEnded) return;
+if (e.target.closest('[data-usel-all]')) return;
+const th = e.target.closest('th[data-col]');
+if (!th) return;
+const s = gridSort(USERS_GRID_KEY, 'modified');
+gridSetSort(USERS_GRID_KEY, th.dataset.col,
+s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
+ctx.rerender();
+});
+const reflow = () => {
+const tmp = document.createElement('div');
+tmp.innerHTML = usersViewHtml(state);
+table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
+app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
+};
+app.querySelector('#pr-ufilter-q').addEventListener('input', (e) => {
+userFilter.q = e.target.value;
+reflow();
+});
+const bindSel = (id, prop) => {
+app.querySelector(id).addEventListener('change', (e) => {
+userFilter[prop] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+ctx.rerender();
+});
+};
+bindSel('#pr-ufilter-ct', 'changeType');
+bindSel('#pr-ufilter-pm', 'permission');
+bindSel('#pr-ufilter-o1', 'org1');
+bindSel('#pr-ufilter-del', 'showDeleted');
+table.addEventListener('click', (e) => {
+const chkAll = e.target.closest('[data-usel-all]');
+if (chkAll) {
+e.stopPropagation();
+const list = visibleUsers(state);
+const all = list.length && list.every((u) => selectedUserIds.has(u.Id));
+list.forEach((u) => { all ? selectedUserIds.delete(u.Id) : selectedUserIds.add(u.Id); });
+ctx.rerender();
+return;
+}
+const chk = e.target.closest('[data-usel]');
+if (chk) {
+e.stopPropagation();
+const id = +chk.dataset.usel;
+chk.checked ? selectedUserIds.add(id) : selectedUserIds.delete(id);
+ctx.rerender();
+return;
+}
+const tr = e.target.closest('tr[data-uid]');
+if (!tr) return;
+if (window.getSelection && String(window.getSelection())) return;
+const item = state.users.find((u) => u.Id === +tr.dataset.uid);
+if (item) ctx.onEdit(item);
+});
+}
+function openUserForm(state, onSubmit, existing) {
 return new Promise((resolve) => {
+const isEdit = !!existing;
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const fieldRow = (label, inner) => `
       <div class="pr-field"><label>${label}</label>${inner}</div>`;
+const selOpts = (opts, cur) => opts.map((c) =>
+'<option' + (c === cur ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
 const back = el(`
       <div class="pr-backdrop">
-        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="利用者の新規登録">
-          <h4>利用者の新規登録</h4>
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="${isEdit ? '利用者の編集' : '利用者の新規登録'}">
+          <h4>${isEdit ? '利用者の編集' : '利用者の新規登録'}</h4>
           ${fieldRow('利用者名 <span class="pr-req">*</span>', '<input type="text" class="pr-input" id="uf-name">')}
           ${fieldRow('会社名', '<input type="text" class="pr-input" id="uf-company">')}
           ${fieldRow('メールアドレス', '<input type="text" class="pr-input" id="uf-email">')}
-          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${
-['新規', '変更', '削除', '変更なし'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
-          ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${
-['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
+          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${selOpts(state.choices.changeType, existing && existing.ChangeType)}</select>`)}
+          ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${selOpts(state.choices.permission, existing && existing.Permission)}</select>`)}
           ${fieldRow(esc(LABEL_L1), `<select class="pr-input" id="uf-l1">${
-activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
+activeL1.map((x) => '<option' + (existing && existing.OrgLevel1 === x.Title ? ' selected' : '') + '>' + esc(x.Title) + '</option>').join('')}</select>`)}
           <div class="pr-field">
             <div class="pr-field-row">
               <label>${esc(LABEL_L2)}</label>
@@ -766,19 +1193,29 @@ activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`
             <div class="pr-checks" id="uf-l2"></div>
           </div>
           ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
+          ${isEdit ? `
+          <label class="pr-check"><input type="checkbox" id="uf-sysdel" ${existing.SystemDeleted === true ? 'checked' : ''}>
+            システム削除(論理削除)</label>` : ''}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
-            <button class="pr-btn pr-btn--primary" data-mact="ok">登録する</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">${isEdit ? '保存' : '登録する'}</button>
           </div>
         </div>
       </div>`);
+if (existing) {
+back.querySelector('#uf-name').value = existing.Title || '';
+back.querySelector('#uf-company').value = existing.Company || '';
+back.querySelector('#uf-email').value = existing.Email || '';
+back.querySelector('#uf-notes').value = existing.Notes || '';
+}
 const l1Sel = back.querySelector('#uf-l1');
 const l2Box = back.querySelector('#uf-l2');
 const renderL2 = () => {
 const list = activeL2Of(state, l1Sel.value);
 l2Box.innerHTML = list.length
 ? list.map((x) => `
-            <label class="pr-check"><input type="checkbox" data-l2="${x.Id}">${esc(x.Title)}</label>`).join('')
+            <label class="pr-check"><input type="checkbox" data-l2="${x.Id}"${
+existing && existing['L2_' + x.Id] === true ? ' checked' : ''}>${esc(x.Title)}</label>`).join('')
 : '<span class="pr-note">この' + LABEL_L1 + 'に有効な' + LABEL_L2 + 'はありません</span>';
 };
 l1Sel.addEventListener('change', renderL2);
@@ -807,13 +1244,19 @@ Notes: back.querySelector('#uf-notes').value.trim(),
 for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
 if (cb.checked) body['L2_' + cb.dataset.l2] = true;
 }
+if (isEdit) {
+for (const k of Object.keys(existing)) {
+if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false;
+}
+body.SystemDeleted = back.querySelector('#uf-sysdel').checked;
+}
 const okBtn = back.querySelector('[data-mact="ok"]');
 okBtn.disabled = true;
 try {
 const result = await onSubmit(body);
 done(result === undefined ? body : result);
 } catch (e) {
-toast('err', '登録に失敗しました — ' + e.message);
+toast('err', (isEdit ? '保存' : '登録') + 'に失敗しました — ' + e.message);
 okBtn.disabled = false;
 }
 };
@@ -844,7 +1287,71 @@ document.getElementById(ROOT_ID).appendChild(back);
 back.querySelector('#uf-name').focus();
 });
 }
-function openSettingsModal() {
+function openBulkModal(state, count) {
+return new Promise((resolve) => {
+const KEEP = '（変更しない）';
+const sel = (id, opts) => `<select class="pr-input" id="${id}">` +
+['<option>' + KEEP + '</option>'].concat(opts.map((o) => '<option>' + esc(o) + '</option>')).join('') +
+'</select>';
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal" role="dialog" aria-modal="true" aria-label="一括変更">
+          <h4>一括変更 — 選択中 ${count}件</h4>
+          <div class="pr-field"><label>変更区分</label>${sel('bk-ct', state.choices.changeType)}</div>
+          <div class="pr-field"><label>権限</label>${sel('bk-pm', state.choices.permission)}</div>
+          <div class="pr-field"><label>システム削除(論理削除)</label>${sel('bk-del', ['削除する', '解除する'])}</div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">適用する</button>
+          </div>
+        </div>
+      </div>`);
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+const ok = () => {
+const changes = {};
+const KEEPV = KEEP;
+const ct = back.querySelector('#bk-ct').value;
+const pm = back.querySelector('#bk-pm').value;
+const dl = back.querySelector('#bk-del').value;
+if (ct !== KEEPV) changes.ChangeType = ct;
+if (pm !== KEEPV) changes.Permission = pm;
+if (dl !== KEEPV) changes.SystemDeleted = dl === '削除する';
+if (!Object.keys(changes).length) {
+toast('warn', '変更する項目がありません');
+return;
+}
+done(changes);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(null);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('#bk-ct').focus();
+});
+}
+function openSettingsModal(state) {
+return new Promise((resolve) => {
+openSettingsModalInner(state, resolve);
+});
+}
+function openSettingsModalInner(state, resolve) {
 const srcInfo = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
 const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
 const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
@@ -870,7 +1377,16 @@ const back = el(`
           <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
           <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
-        <span class="pr-note">設定は次回のブックマークレット起動から反映されます(このパネルは再読込されません)。</span>
+        <div class="pr-field">
+          <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
+          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
+        </div>
+        <div class="pr-field">
+          <label>「権限」の選択肢(1行1件)</label>
+          <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-pm" rows="3" ${state.usersReady ? '' : 'disabled'}></textarea>
+          ${state.usersReady ? '' : '<span class="pr-note">「リストへ反映」で利用者一覧リストを作成すると編集できます。</span>'}
+        </div>
+        <span class="pr-note">配信設定は次回のブックマークレット起動から反映されます。選択肢は保存時に即反映されます。</span>
         <div class="pr-modal-actions">
           <button class="pr-btn pr-btn--secondary" data-mact="cancel">閉じる</button>
           <button class="pr-btn pr-btn--primary" data-mact="ok">保存</button>
@@ -890,11 +1406,36 @@ dirInput.placeholder = '配信サーバに接続できません(python dev/serve
 dirInput.disabled = true;
 }
 })();
+back.querySelector('#pr-choice-ct').value = state.choices.changeType.join('\n');
+back.querySelector('#pr-choice-pm').value = state.choices.permission.join('\n');
 const close = () => {
 document.removeEventListener('keydown', onKey, true);
 back.remove();
+resolve();
 };
 const save = async () => {
+if (state.usersReady) {
+const parseLines = (id) => [...new Set(back.querySelector(id).value
+.split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
+const ct = parseLines('#pr-choice-ct');
+const pm = parseLines('#pr-choice-pm');
+if (!ct.length || !pm.length) {
+toast('warn', '変更区分/権限の選択肢は1件以上必要です');
+return;
+}
+const changedCt = ct.join('\n') !== state.choices.changeType.join('\n');
+const changedPm = pm.join('\n') !== state.choices.permission.join('\n');
+if (changedCt || changedPm) {
+try {
+if (changedCt) await setChoices(LIST_USERS, 'ChangeType', '変更区分', ct, true);
+if (changedPm) await setChoices(LIST_USERS, 'Permission', '権限', pm, true);
+state.choices = { changeType: ct, permission: pm };
+} catch (e) {
+toast('err', '選択肢の更新に失敗しました — ' + e.message);
+return;
+}
+}
+}
 const local = back.querySelector('input[name="pr-src"][value="local"]').checked;
 const base = back.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
 if (local) {
@@ -1007,6 +1548,7 @@ selectedL1: null,
 ready: false,
 usersReady: false,
 users: [],
+choices: { changeType: CHANGE_TYPE_DEFAULTS, permission: PERMISSION_DEFAULTS },
 busy: false,
 };
 function guessWebUrl() {
@@ -1034,6 +1576,18 @@ state.usersReady
 state.l1 = r1.value || [];
 state.l2 = r2.value || [];
 state.users = ru.value || [];
+if (state.usersReady) {
+try {
+const [ct, pm] = await Promise.all([
+spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
+spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
+]);
+state.choices = {
+changeType: (ct.Choices && ct.Choices.length) ? ct.Choices : CHANGE_TYPE_DEFAULTS,
+permission: (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS,
+};
+} catch { }
+}
 if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
 if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
 }
@@ -1088,6 +1642,70 @@ state.busy = false;
 app.style.opacity = '';
 app.style.pointerEvents = '';
 }
+}
+async function ensureCheckedL2Cols(body) {
+const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
+if (!l2Keys.length) return;
+const existing = await spGet(lt(LIST_USERS) +
+"/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
+const have = new Set((existing.value || []).map((f) => f.InternalName));
+if (l2Keys.some((k) => !have.has(k))) {
+setStatus('マスタ未反映分をリストへ反映中…');
+await syncMastersToUserList(state, setStatus);
+}
+}
+async function userAddFlow() {
+const result = await openUserForm(state, async (body) => {
+await ensureCheckedL2Cols(body);
+await addItem(LIST_USERS, body);
+return body.Title;
+});
+if (!result) return;
+run('登録', async () => {
+await reload();
+toast('ok', '「' + result + '」を登録しました');
+});
+}
+async function userEditFlow(item) {
+const result = await openUserForm(state, async (body) => {
+await ensureCheckedL2Cols(body);
+await updateItem(LIST_USERS, item.Id, body);
+return body.Title;
+}, item);
+if (!result) return;
+run('保存', async () => {
+await reload();
+toast('ok', '「' + result + '」を保存しました');
+});
+}
+async function userBulkFlow() {
+const ids = [...selectedUserIds];
+if (!ids.length) return;
+const changes = await openBulkModal(state, ids.length);
+if (!changes) return;
+run('一括変更', async () => {
+for (const id of ids) await updateItem(LIST_USERS, id, changes);
+await reload();
+toast('ok', ids.length + '件を一括変更しました');
+});
+}
+async function userDeleteFlow() {
+const ids = [...selectedUserIds];
+if (!ids.length) return;
+const okDel = await modal({
+title: '物理削除の確認',
+message: '選択中の ' + ids.length + '件をリストから完全に削除します。この操作は元に戻せません。' +
+'(復元できる削除は「一括変更」のシステム削除=論理削除を使ってください)',
+okLabel: '完全に削除する',
+danger: true,
+});
+if (!okDel) return;
+run('物理削除', async () => {
+for (const id of ids) await deleteItem(LIST_USERS, id);
+selectedUserIds.clear();
+await reload();
+toast('ok', ids.length + '件を削除しました');
+});
 }
 function masterView() {
 const l2of = (l1id) => state.l2.filter((x) => x.Level1 && x.Level1.Id === l1id);
@@ -1148,7 +1766,7 @@ function usersView() {
 return usersViewHtml(state);
 }
 function render() {
-const views = { users: usersView, master: masterView };
+const views = { users: usersView, master: masterView, notify: notifyViewHtml };
 const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
         ${label}<small>${sub}</small></button>`;
@@ -1166,10 +1784,14 @@ app.innerHTML = `
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
+          ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'} / ${esc(BUILD)}</div>`;
+if (state.view === 'users') {
+usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+}
 }
 async function reload() {
 await checkReady();
@@ -1211,7 +1833,7 @@ const items = kind === 'l1' ? state.l1
 const item = items && items.find((x) => x.Id === id);
 if (act === 'close') { root.remove(); return; }
 if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-if (act === 'settings') { openSettingsModal(); return; }
+if (act === 'settings') { openSettingsModal(state).then(render); return; }
 if (act === 'reload') { run('再読込', reload); return; }
 if (act === 'setup') {
 run('セットアップ', async () => {
@@ -1222,28 +1844,11 @@ toast('ok', 'マスタリストを作成しました');
 return;
 }
 if (act === 'select') { state.selectedL1 = id; render(); return; }
-if (act === 'user-add') {
-const result = await openUserForm(state, async (body) => {
-const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
-if (l2Keys.length) {
-const existing = await spGet(lt(LIST_USERS) +
-"/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
-const have = new Set((existing.value || []).map((f) => f.InternalName));
-if (l2Keys.some((k) => !have.has(k))) {
-setStatus('マスタ未反映分をリストへ反映中…');
-await syncMastersToUserList(state, setStatus);
-}
-}
-await addItem(LIST_USERS, body);
-return body.Title;
-});
-if (!result) return;
-run('登録', async () => {
-await reload();
-toast('ok', '「' + result + '」を登録しました');
-});
-return;
-}
+if (act === 'user-add') { userAddFlow(); return; }
+if (act === 'user-bulk') { userBulkFlow(); return; }
+if (act === 'user-del-selected') { userDeleteFlow(); return; }
+if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
+if (act === 'notify-read') { notifyMarkRead(); render(); return; }
 if (act === 'sync-users') {
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const activeL1Ids = new Set(activeL1.map((x) => x.Id));
@@ -1373,5 +1978,23 @@ render();
 run('読込', reload);
 window.__permreg = { state, build: BUILD };
 startUpdateWatcher(BUILD);
+if (window.__permregUsersPoll) clearInterval(window.__permregUsersPoll);
+const pollUsers = async () => {
+if (document.hidden || state.busy || !state.usersReady) return;
+if (root.querySelector('.pr-backdrop')) return;
+try {
+const r = await spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999');
+const next = r.value || [];
+const events = diffUsers(state.users, next);
+if (!events.length) return;
+notifyAdd(events);
+state.users = next;
+const ae = document.activeElement;
+if (ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+render();
+} catch { }
+};
+window.__permregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
+window.__permregPollNow = pollUsers;
 })();
 })();

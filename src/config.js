@@ -11,6 +11,15 @@ const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
 
+// 変更区分/権限の既定選択肢(リスト作成時のみ使用。以後はリスト列のChoicesが正)
+const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
+const PERMISSION_DEFAULTS = ['参照者', '更新者'];
+
+// 通知/ポーリング
+const POLL_INTERVAL = 30000;
+const LS_NOTIFY_EVENTS = 'permreg.notify.events';
+const LS_NOTIFY_READAT = 'permreg.notify.readAt';
+
 // UI/列の表示名で使う呼称(リスト名は互換のため変更しない)
 const LABEL_L1 = '組織区分1';
 const LABEL_L2 = '組織区分2';
