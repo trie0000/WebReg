@@ -12,14 +12,14 @@ function activeL2Of(state, l1Title) {
 }
 
 function usersTableHtml(state) {
-  const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', '組織区分第1階層', '組織区分第2階層'];
+  const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', LABEL_L1, LABEL_L2];
   const l2ById = new Map(state.l2.map((x) => [x.Id, x]));
   const checkedOf = (item) => {
     const names = [];
     for (const [id, m] of l2ById) {
       if (item['L2_' + id] === true) names.push('☑' + m.Title);
     }
-    return names.join('、');
+    return names.join('/');
   };
   const rows = state.users.map((u) => `
     <tr>
@@ -76,11 +76,11 @@ function openUserForm(state, onSubmit) {
             ['新規', '変更', '削除', '変更なし'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
           ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${
             ['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
-          ${fieldRow('組織区分第1階層', `<select class="pr-input" id="uf-l1">${
+          ${fieldRow(esc(LABEL_L1), `<select class="pr-input" id="uf-l1">${
             activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
           <div class="pr-field">
             <div class="pr-field-row">
-              <label>組織区分第2階層</label>
+              <label>${esc(LABEL_L2)}</label>
               <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
             </div>
             <div class="pr-checks" id="uf-l2"></div>
@@ -101,7 +101,7 @@ function openUserForm(state, onSubmit) {
       l2Box.innerHTML = list.length
         ? list.map((x) => `
             <label class="pr-check"><input type="checkbox" data-l2="${x.Id}">${esc(x.Title)}</label>`).join('')
-        : '<span class="pr-note">この第1階層に有効な第2階層はありません</span>';
+        : '<span class="pr-note">この' + LABEL_L1 + 'に有効な' + LABEL_L2 + 'はありません</span>';
     };
     l1Sel.addEventListener('change', renderL2);
     renderL2();

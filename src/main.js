@@ -149,9 +149,9 @@
       </div>
       <div class="pr-cols">
         <div class="pr-col">
-          <div class="pr-sub"><b>第1階層</b><span class="pr-count">${state.l1.length}件</span></div>
+          <div class="pr-sub"><b>${esc(LABEL_L1)}</b><span class="pr-count">${state.l1.length}件</span></div>
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l1" placeholder="第1階層の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称を入力">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
             <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加">まとめて</button>
           </div>
@@ -160,7 +160,7 @@
             '<div class="pr-empty">未登録</div>'}</div>
         </div>
         <div class="pr-col">
-          <div class="pr-sub"><b>第2階層${sel ? ' — ' + esc(sel.Title) : ''}</b>
+          <div class="pr-sub"><b>${esc(LABEL_L2)}${sel ? ' — ' + esc(sel.Title) : ''}</b>
             <span class="pr-count">${sel ? l2of(sel.Id).length + '件' : ''}</span></div>
           ${sel ? `
           <div class="pr-toolbar">
@@ -170,7 +170,7 @@
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
             '<div class="pr-empty">未登録</div>'}</div>`
-          : '<div class="pr-empty">左で第1階層を選択してください</div>'}
+          : '<div class="pr-empty">左で' + LABEL_L1 + 'を選択してください</div>'}
         </div>
       </div>`;
   }
@@ -198,7 +198,7 @@
         <nav class="pr-side" aria-label="メニュー">
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
-          ${navItem('master', 'マスタ管理', '組織区分(第1/第2階層)')}
+          ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
@@ -293,13 +293,13 @@
       const activeL1Ids = new Set(activeL1.map((x) => x.Id));
       const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id));
       if (!activeL1.length) {
-        toast('warn', '有効な第1階層がありません。先にマスタを登録してください');
+        toast('warn', '有効な' + LABEL_L1 + 'がありません。先にマスタを登録してください');
         return;
       }
       const ok = await modal({
         title: 'リストへ反映',
         message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
-          '第1階層 ' + activeL1.length + '件を選択肢に、第2階層 ' + activeL2.length +
+          LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
           '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。',
         okLabel: '反映する',
       });
@@ -308,8 +308,9 @@
         const s = await syncMastersToUserList(state, setStatus);
         await reload();
         toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
-          '第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
+          LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
+        if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
       });
       return;
     }
@@ -317,7 +318,7 @@
     if (act === 'bulk-l1' || act === 'bulk-l2') {
       const isL1 = act === 'bulk-l1';
       const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
-      const targetLabel = isL1 ? '第1階層' : '「' + (selL1 ? selL1.Title : '') + '」配下の第2階層';
+      const targetLabel = isL1 ? LABEL_L1 : '「' + (selL1 ? selL1.Title : '') + '」配下の' + LABEL_L2;
       const text = await modal({
         title: 'まとめて追加 — ' + targetLabel,
         message: '1行に1件ずつ入力してください(Excel の列を貼り付けてもOK)。既存と重複する名称はスキップされます。確定は Cmd/Ctrl+Enter でも可。',
@@ -389,7 +390,7 @@
       if (kind === 'l1') {
         const children = state.l2.filter((x) => x.Level1 && x.Level1.Id === id);
         if (children.length) {
-          toast('warn', '「' + item.Title + '」には第2階層が ' + children.length + ' 件あります。先に第2階層を削除してください');
+          toast('warn', '「' + item.Title + '」には' + LABEL_L2 + 'が ' + children.length + ' 件あります。先に' + LABEL_L2 + 'を削除してください');
           return;
         }
       }
@@ -409,6 +410,11 @@
       run('並べ替え', async () => {
         await moveItem(listTitle, items, item, act === 'up' ? -1 : 1);
         await reload();
+        // 並び順は集計式・登録モーダル・リスト列順にも影響するため、利用者一覧があれば自動反映
+        if (state.usersReady) {
+          setStatus('並び順をリストへ反映中…');
+          await syncMastersToUserList(state, setStatus);
+        }
       });
     }
   });

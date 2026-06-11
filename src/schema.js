@@ -42,11 +42,18 @@ async function ensureLookupField(title, internal, display, targetListId) {
   await spMerge(lt(title) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
 }
 
+// ⚠ 実機 SP の addviewfield は既存列でもエラーにならず重複追加されるため、
+// 必ず現在のビュー列を確認して未追加のものだけ追加する
 async function addViewFields(title, internals) {
+  let have = [];
+  try {
+    have = (await spGet(lt(title) + '/defaultview/viewfields')).Items || [];
+  } catch { /* ビューが無い場合はそのまま試行 */ }
   for (const f of internals) {
+    if (have.includes(f)) continue;
     try {
       await spPost(lt(title) + "/defaultview/viewfields/addviewfield('" + f + "')");
-    } catch { /* 既に追加済みなら無視 */ }
+    } catch { /* ignore */ }
   }
 }
 

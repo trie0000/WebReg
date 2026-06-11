@@ -8,7 +8,9 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
-const BUILD = typeof "0.1.0-5cd34009" !== 'undefined' ? "0.1.0-5cd34009" : 'dev';
+const LABEL_L1 = '組織区分1';
+const LABEL_L2 = '組織区分2';
+const BUILD = typeof "0.1.0-d7ed3288" !== 'undefined' ? "0.1.0-d7ed3288" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -65,6 +67,38 @@ const spPost = (p, b) => sp('POST', p, b);
 const spMerge = (p, b) => sp('POST', p, b, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' });
 const spDelete = (p) => sp('POST', p, null, { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' });
 const lt = (title) => "/_api/web/lists/getbytitle('" + encodeURIComponent(title.replace(/'/g, "''")) + "')";
+async function spReorderContentTypeFields(listTitle, orderedInternalNames) {
+const [site, web, list, cts] = await Promise.all([
+spGet('/_api/site?$select=Id'),
+spGet('/_api/web?$select=Id'),
+spGet(lt(listTitle) + '?$select=Id'),
+spGet(lt(listTitle) + "/contenttypes?$select=StringId,Name"),
+]);
+const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
+if (!ct) throw new Error('コンテンツタイプが見つかりません');
+const identity = '740c6a0b-85e2-48a0-a494-e0f1759d4aa7:site:' + site.Id +
+':web:' + web.Id + ':list:' + list.Id + ':contenttype:' + ct.StringId;
+const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const params = orderedInternalNames.map((n) => '<Object Type="String">' + xmlEscape(n) + '</Object>').join('');
+const xml = '<Request AddExpandoFieldTypeSuffix="true" SchemaVersion="15.0.0.0" LibraryVersion="16.0.0.0"' +
+' ApplicationName="permreg" xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009"><Actions>' +
+'<Method Name="Reorder" Id="1" ObjectPathId="2"><Parameters><Parameter Type="Array">' + params +
+'</Parameter></Parameters></Method>' +
+'<Method Name="Update" Id="3" ObjectPathId="5"><Parameters><Parameter Type="Boolean">false</Parameter></Parameters></Method>' +
+'</Actions><ObjectPaths>' +
+'<Property Id="2" ParentId="5" Name="FieldLinks" />' +
+'<Identity Id="5" Name="' + identity + '" />' +
+'</ObjectPaths></Request>';
+const r = await fetch(_webUrl + '/_vti_bin/client.svc/ProcessQuery', {
+method: 'POST',
+headers: { 'Content-Type': 'text/xml', 'X-RequestDigest': await getDigest() },
+credentials: 'same-origin',
+body: xml,
+});
+if (!r.ok) throw new Error('HTTP ' + r.status);
+const j = await r.json();
+if (j && j[0] && j[0].ErrorInfo) throw new Error(j[0].ErrorInfo.ErrorMessage);
+}
 async function spMergeVerbose(path, odataType, body) {
 const r = await fetch(_webUrl + path, {
 method: 'POST',
@@ -123,7 +157,12 @@ await spPost(lt(title) + '/fields/createfieldasxml', { parameters: { SchemaXml: 
 await spMerge(lt(title) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
 }
 async function addViewFields(title, internals) {
+let have = [];
+try {
+have = (await spGet(lt(title) + '/defaultview/viewfields')).Items || [];
+} catch { }
 for (const f of internals) {
+if (have.includes(f)) continue;
 try {
 await spPost(lt(title) + "/defaultview/viewfields/addviewfield('" + f + "')");
 } catch { }
@@ -161,9 +200,9 @@ return;
 }
 const path = lt(listTitle) + "/fields/getbyinternalnameortitle('" + internal + "')";
 try {
-await spMerge(path, { Choices: choices });
+await spMerge(path, { Title: display, Choices: choices });
 } catch {
-await spMergeVerbose(path, 'SP.FieldChoice', { Choices: { results: choices } });
+await spMergeVerbose(path, 'SP.FieldChoice', { Title: display, Choices: { results: choices } });
 }
 }
 async function ensureUserList(log) {
@@ -191,9 +230,9 @@ const activeL2 = state.l2
 ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
 const summary = { createdList: false, l1Count: activeL1.length, added: 0, renamed: 0, l2Count: activeL2.length };
 summary.createdList = await ensureUserList(log);
-log('組織区分第1階層の選択肢を更新中…');
-await setChoices(LIST_USERS, 'OrgLevel1', '組織区分第1階層', activeL1.map((x) => x.Title), false);
-log('第2階層のチェック列を更新中…');
+log(LABEL_L1 + 'の選択肢を更新中…');
+await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
+log(LABEL_L2 + 'のチェック列を更新中…');
 const existing = await spGet(lt(LIST_USERS) +
 "/fields?$select=InternalName,Title&$filter=startswith(InternalName,'L2_')");
 const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
@@ -218,7 +257,7 @@ await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal +
 summary.renamed++;
 }
 }
-log('集計列(組織区分第2階層)を更新中…');
+log('集計列(' + LABEL_L2 + ')を更新中…');
 const formula = activeL2.length
 ? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
 .join('&"/"&')
@@ -229,13 +268,54 @@ const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' S
 " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
 '<FieldRefs>' + refs + '</FieldRefs></Field>';
 await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
-await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: '組織区分第2階層' });
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
 } else {
-await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Formula: formula });
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
 }
 await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+const orderedManaged = ['OrgLevel1', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
+try {
+log('列の並び順を更新中…');
+await applyColumnOrder(orderedManaged);
+} catch (e) {
+summary.orderWarn = e.message;
+}
 log('反映完了');
 return summary;
+}
+async function applyColumnOrder(orderedManaged) {
+let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+const counts = new Map();
+current.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
+let hadDupes = false;
+for (const [n, c] of counts) {
+if (c <= 1) continue;
+hadDupes = true;
+for (let i = 0; i < c; i++) {
+try {
+await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')");
+} catch { break; }
+}
+await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
+}
+if (hadDupes) {
+current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+}
+const managedSet = new Set(orderedManaged);
+const baseCount = current.filter((n) => !managedSet.has(n)).length;
+const inView = orderedManaged.filter((n) => current.includes(n));
+for (let i = 0; i < inView.length; i++) {
+await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto',
+{ field: inView[i], index: baseCount + i });
+}
+const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
+const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
+if (!ct) return;
+const links = await spGet(lt(LIST_USERS) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
+const names = (links.value || []).map((f) => f.Name);
+const ordered = names.filter((n) => !managedSet.has(n))
+.concat(orderedManaged.filter((n) => names.includes(n)));
+await spReorderContentTypeFields(LIST_USERS, ordered);
 }
 const ICONS = {
 'chevron-up': '<path d="M6 15l6-6 6 6"/>',
@@ -616,14 +696,14 @@ return state.l2
 .sort((a, b) => ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
 }
 function usersTableHtml(state) {
-const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', '組織区分第1階層', '組織区分第2階層'];
+const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', LABEL_L1, LABEL_L2];
 const l2ById = new Map(state.l2.map((x) => [x.Id, x]));
 const checkedOf = (item) => {
 const names = [];
 for (const [id, m] of l2ById) {
 if (item['L2_' + id] === true) names.push('☑' + m.Title);
 }
-return names.join('、');
+return names.join('/');
 };
 const rows = state.users.map((u) => `
     <tr>
@@ -676,11 +756,11 @@ const back = el(`
 ['新規', '変更', '削除', '変更なし'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
           ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${
 ['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
-          ${fieldRow('組織区分第1階層', `<select class="pr-input" id="uf-l1">${
+          ${fieldRow(esc(LABEL_L1), `<select class="pr-input" id="uf-l1">${
 activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
           <div class="pr-field">
             <div class="pr-field-row">
-              <label>組織区分第2階層</label>
+              <label>${esc(LABEL_L2)}</label>
               <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
             </div>
             <div class="pr-checks" id="uf-l2"></div>
@@ -699,7 +779,7 @@ const list = activeL2Of(state, l1Sel.value);
 l2Box.innerHTML = list.length
 ? list.map((x) => `
             <label class="pr-check"><input type="checkbox" data-l2="${x.Id}">${esc(x.Title)}</label>`).join('')
-: '<span class="pr-note">この第1階層に有効な第2階層はありません</span>';
+: '<span class="pr-note">この' + LABEL_L1 + 'に有効な' + LABEL_L2 + 'はありません</span>';
 };
 l1Sel.addEventListener('change', renderL2);
 renderL2();
@@ -1039,9 +1119,9 @@ return `
       </div>
       <div class="pr-cols">
         <div class="pr-col">
-          <div class="pr-sub"><b>第1階層</b><span class="pr-count">${state.l1.length}件</span></div>
+          <div class="pr-sub"><b>${esc(LABEL_L1)}</b><span class="pr-count">${state.l1.length}件</span></div>
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l1" placeholder="第1階層の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称を入力">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
             <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加">まとめて</button>
           </div>
@@ -1050,7 +1130,7 @@ rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
 '<div class="pr-empty">未登録</div>'}</div>
         </div>
         <div class="pr-col">
-          <div class="pr-sub"><b>第2階層${sel ? ' — ' + esc(sel.Title) : ''}</b>
+          <div class="pr-sub"><b>${esc(LABEL_L2)}${sel ? ' — ' + esc(sel.Title) : ''}</b>
             <span class="pr-count">${sel ? l2of(sel.Id).length + '件' : ''}</span></div>
           ${sel ? `
           <div class="pr-toolbar">
@@ -1060,7 +1140,7 @@ rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
 '<div class="pr-empty">未登録</div>'}</div>`
-: '<div class="pr-empty">左で第1階層を選択してください</div>'}
+: '<div class="pr-empty">左で' + LABEL_L1 + 'を選択してください</div>'}
         </div>
       </div>`;
 }
@@ -1085,7 +1165,7 @@ app.innerHTML = `
         <nav class="pr-side" aria-label="メニュー">
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
-          ${navItem('master', 'マスタ管理', '組織区分(第1/第2階層)')}
+          ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
@@ -1169,13 +1249,13 @@ const activeL1 = state.l1.filter((x) => x.Active !== false);
 const activeL1Ids = new Set(activeL1.map((x) => x.Id));
 const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id));
 if (!activeL1.length) {
-toast('warn', '有効な第1階層がありません。先にマスタを登録してください');
+toast('warn', '有効な' + LABEL_L1 + 'がありません。先にマスタを登録してください');
 return;
 }
 const ok = await modal({
 title: 'リストへ反映',
 message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
-'第1階層 ' + activeL1.length + '件を選択肢に、第2階層 ' + activeL2.length +
+LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
 '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。',
 okLabel: '反映する',
 });
@@ -1184,15 +1264,16 @@ run('リストへ反映', async () => {
 const s = await syncMastersToUserList(state, setStatus);
 await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
-'第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
+LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
+if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
 });
 return;
 }
 if (act === 'bulk-l1' || act === 'bulk-l2') {
 const isL1 = act === 'bulk-l1';
 const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
-const targetLabel = isL1 ? '第1階層' : '「' + (selL1 ? selL1.Title : '') + '」配下の第2階層';
+const targetLabel = isL1 ? LABEL_L1 : '「' + (selL1 ? selL1.Title : '') + '」配下の' + LABEL_L2;
 const text = await modal({
 title: 'まとめて追加 — ' + targetLabel,
 message: '1行に1件ずつ入力してください(Excel の列を貼り付けてもOK)。既存と重複する名称はスキップされます。確定は Cmd/Ctrl+Enter でも可。',
@@ -1261,7 +1342,7 @@ await reload();
 if (kind === 'l1') {
 const children = state.l2.filter((x) => x.Level1 && x.Level1.Id === id);
 if (children.length) {
-toast('warn', '「' + item.Title + '」には第2階層が ' + children.length + ' 件あります。先に第2階層を削除してください');
+toast('warn', '「' + item.Title + '」には' + LABEL_L2 + 'が ' + children.length + ' 件あります。先に' + LABEL_L2 + 'を削除してください');
 return;
 }
 }
@@ -1281,6 +1362,10 @@ toast('ok', '「' + item.Title + '」を削除しました');
 run('並べ替え', async () => {
 await moveItem(listTitle, items, item, act === 'up' ? -1 : 1);
 await reload();
+if (state.usersReady) {
+setStatus('並び順をリストへ反映中…');
+await syncMastersToUserList(state, setStatus);
+}
 });
 }
 });

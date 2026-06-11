@@ -11,5 +11,9 @@ const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
 
+// UI/列の表示名で使う呼称(リスト名は互換のため変更しない)
+const LABEL_L1 = '組織区分1';
+const LABEL_L2 = '組織区分2';
+
 // build.py がビルド時に __BUILD__ を版識別子文字列に置換する(未置換の直接実行時は 'dev')
 const BUILD = typeof __BUILD__ !== 'undefined' ? __BUILD__ : 'dev';

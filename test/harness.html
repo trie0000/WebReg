@@ -26,6 +26,10 @@
   const realFetch = window.fetch;
   window.fetch = async (url, opts = {}) => {
     const u = String(url);
+    // CSOM ProcessQuery(FieldLinks 並び替え)は成功レスポンスを返す
+    if (u.includes('/_vti_bin/client.svc/ProcessQuery')) {
+      return json(200, [{ SchemaVersion: '15.0.0.0', ErrorInfo: null }]);
+    }
     if (!u.includes('/_api/')) return realFetch(url, opts);
     const headers = opts.headers || {};
     const xm = headers['X-HTTP-Method'];
@@ -36,10 +40,13 @@
     if (path.startsWith('/_api/contextinfo')) {
       return json(200, { FormDigestValue: 'mock-digest', FormDigestTimeoutSeconds: 1800 });
     }
+    if (path.startsWith('/_api/site?') || path.startsWith('/_api/web?')) {
+      return json(200, { Id: newGuid() });
+    }
 
     // リスト作成
     if (path === '/_api/web/lists' && method === 'POST') {
-      const l = { Id: newGuid(), fields: new Map([['Title', 'タイトル']]), items: [], nextId: 1 };
+      const l = { Id: newGuid(), fields: new Map([['Title', 'タイトル']]), items: [], nextId: 1, view: ['LinkTitle'] };
       store.lists.set(body.Title, l);
       return json(201, { Id: l.Id });
     }
@@ -85,7 +92,33 @@
       list.fields.set(name, disp);
       return json(201, { Id: newGuid() });
     }
-    if (rest.startsWith('/defaultview/viewfields/addviewfield(')) return json(204, null);
+    if (rest.startsWith('/defaultview/viewfields/addviewfield(')) {
+      const f = rest.match(/\('([^']*)'\)/)[1];
+      list.view = list.view || ['LinkTitle'];
+      list.view.push(f); // 実機同様: 既存でも重複追加される
+      return json(204, null);
+    }
+    if (rest.startsWith('/defaultview/viewfields/removeviewfield(')) {
+      const f = rest.match(/\('([^']*)'\)/)[1];
+      list.view = (list.view || []).filter((n) => n !== f);
+      return json(204, null);
+    }
+    if (rest === '/defaultview/viewfields/moveviewfieldto' && method === 'POST') {
+      list.view = list.view || [];
+      const i = list.view.indexOf(body.field);
+      if (i >= 0) list.view.splice(i, 1);
+      list.view.splice(body.index, 0, body.field);
+      return json(204, null);
+    }
+    if (rest === '/defaultview/viewfields' || rest.startsWith('/defaultview/viewfields?')) {
+      return json(200, { Items: list.view || ['LinkTitle'] });
+    }
+    if (rest.startsWith('/contenttypes(') && rest.includes('/fieldlinks')) {
+      return json(200, { value: [...list.fields.keys()].map((n) => ({ Name: n })) });
+    }
+    if (rest.startsWith('/contenttypes')) {
+      return json(200, { value: [{ StringId: '0x0100MOCK', Name: 'アイテム' }] });
+    }
 
     // アイテム
     if (rest.startsWith('/items')) {

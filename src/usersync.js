@@ -30,10 +30,10 @@ async function setChoices(listTitle, internal, display, choices, fillIn) {
   }
   const path = lt(listTitle) + "/fields/getbyinternalnameortitle('" + internal + "')";
   try {
-    await spMerge(path, { Choices: choices });
+    await spMerge(path, { Title: display, Choices: choices }); // 表示名の変更にも追従
   } catch {
     // nometadata でコレクション更新を受け付けないテナント向けの verbose フォールバック
-    await spMergeVerbose(path, 'SP.FieldChoice', { Choices: { results: choices } });
+    await spMergeVerbose(path, 'SP.FieldChoice', { Title: display, Choices: { results: choices } });
   }
 }
 
@@ -67,12 +67,12 @@ async function syncMastersToUserList(state, log) {
   const summary = { createdList: false, l1Count: activeL1.length, added: 0, renamed: 0, l2Count: activeL2.length };
   summary.createdList = await ensureUserList(log);
 
-  // 第1階層: 選択肢列を有効マスタで更新
-  log('組織区分第1階層の選択肢を更新中…');
-  await setChoices(LIST_USERS, 'OrgLevel1', '組織区分第1階層', activeL1.map((x) => x.Title), false);
+  // 組織区分1: 選択肢列を有効マスタで更新
+  log(LABEL_L1 + 'の選択肢を更新中…');
+  await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
 
-  // 第2階層: 既存の L2_* 列を取得して 追加/改名 を判断
-  log('第2階層のチェック列を更新中…');
+  // 組織区分2: 既存の L2_* 列を取得して 追加/改名 を判断
+  log(LABEL_L2 + 'のチェック列を更新中…');
   const existing = await spGet(lt(LIST_USERS) +
     "/fields?$select=InternalName,Title&$filter=startswith(InternalName,'L2_')");
   const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
@@ -101,8 +101,8 @@ async function syncMastersToUserList(state, log) {
     }
   }
 
-  // 集計列: ☑/◽ を有効な第2階層の順で連結する式に更新
-  log('集計列(組織区分第2階層)を更新中…');
+  // 集計列: ☑/◽ をマスタの並び順で連結する式に更新(並び替えもここで追従)
+  log('集計列(' + LABEL_L2 + ')を更新中…');
   const formula = activeL2.length
     ? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
       .join('&"/"&')
@@ -113,12 +113,62 @@ async function syncMastersToUserList(state, log) {
       " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
       '<FieldRefs>' + refs + '</FieldRefs></Field>';
     await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
-    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: '組織区分第2階層' });
+    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
   } else {
-    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Formula: formula });
+    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
   }
 
   await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+
+  // 列の並び順をマスタに合わせる(既定ビュー + SP標準フォーム)。失敗しても反映自体は成立
+  const orderedManaged = ['OrgLevel1', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
+  try {
+    log('列の並び順を更新中…');
+    await applyColumnOrder(orderedManaged);
+  } catch (e) {
+    summary.orderWarn = e.message;
+  }
   log('反映完了');
   return summary;
+}
+
+// 既定ビューの列順と、SP標準フォーム(コンテンツタイプ FieldLinks)の列順を
+// orderedManaged(組織区分1 → 集計列 → 組織区分2チェック列のマスタ順)に揃える
+async function applyColumnOrder(orderedManaged) {
+  // 既定ビュー: 管理対象以外の列を先頭に保ち、管理対象を末尾に指定順で並べる
+  let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  // 過去の重複追加(実機 addviewfield の仕様)を掃除。
+  // removeviewfield は1回の呼び出しで1つしか消えないため、出現回数分削除して1つ追加し直す
+  const counts = new Map();
+  current.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
+  let hadDupes = false;
+  for (const [n, c] of counts) {
+    if (c <= 1) continue;
+    hadDupes = true;
+    for (let i = 0; i < c; i++) {
+      try {
+        await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')");
+      } catch { break; /* 全部消えたら終了 */ }
+    }
+    await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
+  }
+  if (hadDupes) {
+    current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  }
+  const managedSet = new Set(orderedManaged);
+  const baseCount = current.filter((n) => !managedSet.has(n)).length;
+  const inView = orderedManaged.filter((n) => current.includes(n));
+  for (let i = 0; i < inView.length; i++) {
+    await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto',
+      { field: inView[i], index: baseCount + i });
+  }
+  // SP標準フォーム: FieldLinks の全体順(管理対象以外は現状維持で先頭、管理対象を末尾)
+  const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
+  const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
+  if (!ct) return;
+  const links = await spGet(lt(LIST_USERS) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
+  const names = (links.value || []).map((f) => f.Name);
+  const ordered = names.filter((n) => !managedSet.has(n))
+    .concat(orderedManaged.filter((n) => names.includes(n)));
+  await spReorderContentTypeFields(LIST_USERS, ordered);
 }
