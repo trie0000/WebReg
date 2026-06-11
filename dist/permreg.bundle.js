@@ -7,7 +7,7 @@ const LS_DEV_BASE = 'permreg.dev.local-base';
 const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
-const BUILD = typeof "0.1.0-388d2c28" !== 'undefined' ? "0.1.0-388d2c28" : 'dev';
+const BUILD = typeof "0.1.0-adb79826" !== 'undefined' ? "0.1.0-adb79826" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -674,7 +674,12 @@ return `
         <div class="pr-field">
           <label>ローカル配信 URL(開発者モード時)</label>
           <input type="text" class="pr-input" id="pr-dev-base" value="${esc(localBase)}" placeholder="${esc(DEFAULT_LOCAL_BASE)}">
-          <span class="pr-note">リポジトリで <code>npm run dev</code> を起動し、ビルドした dist/ を配信します。</span>
+          <span class="pr-note">リポジトリで <code>python dev/serve.py</code> を起動して配信します。</span>
+        </div>
+        <div class="pr-field">
+          <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
+          <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
+          <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
         <div>
           <button class="pr-btn pr-btn--primary" data-act="save-settings">保存</button>
@@ -707,6 +712,22 @@ app.innerHTML = `
         <div class="pr-main">${views[state.view]()}</div>
       </div>
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'} / ${esc(BUILD)}</div>`;
+if (state.view === 'settings') loadBundleDirField();
+}
+async function loadBundleDirField() {
+const input = app.querySelector('#pr-bundle-dir');
+if (!input) return;
+const base = (localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE).replace(/\/+$/, '');
+try {
+const r = await fetch(base + '/bundle-dir?t=' + Date.now());
+if (!r.ok) throw new Error('HTTP ' + r.status);
+const j = await r.json();
+input.value = j.dir || '';
+input.dataset.loaded = '1';
+} catch {
+input.placeholder = '配信サーバに接続できません(python dev/serve.py を起動して再表示)';
+input.disabled = true;
+}
 }
 async function reload() {
 await checkReady();
@@ -760,12 +781,27 @@ return;
 if (act === 'select') { state.selectedL1 = id; render(); return; }
 if (act === 'save-settings') {
 const isLocal = app.querySelector('input[name="pr-src"][value="local"]').checked;
-const base = app.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '');
+const base = app.querySelector('#pr-dev-base').value.trim().replace(/\/+$/, '') || DEFAULT_LOCAL_BASE;
 if (isLocal) {
 localStorage.setItem(LS_DEV_SOURCE, 'local');
-localStorage.setItem(LS_DEV_BASE, base || DEFAULT_LOCAL_BASE);
+localStorage.setItem(LS_DEV_BASE, base);
 } else {
 localStorage.removeItem(LS_DEV_SOURCE);
+}
+const dirInput = app.querySelector('#pr-bundle-dir');
+if (isLocal && dirInput && dirInput.dataset.loaded && dirInput.value.trim()) {
+try {
+const r = await fetch(base + '/bundle-dir', {
+method: 'POST',
+body: JSON.stringify({ dir: dirInput.value.trim() }),
+});
+const j = await r.json().catch(() => ({}));
+if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+toast('ok', '保存しました(配信フォルダ: ' + j.dir + ')。次回のブックマークレット起動から反映されます');
+} catch (e) {
+toast('err', '配信フォルダの変更に失敗しました — ' + e.message);
+}
+return;
 }
 toast('ok', '保存しました。次回のブックマークレット起動から反映されます');
 return;
