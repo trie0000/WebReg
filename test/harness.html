@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>permreg 動作確認ハーネス (SharePoint REST モック)</title>
+<style>body{font:14px/1.6 "Segoe UI",sans-serif;margin:24px}</style>
+</head>
+<body>
+<h1>permreg 動作確認ハーネス</h1>
+<p>SharePoint REST API をメモリ上でモックし、bookmarklet 本体 (dist/app.js) を実行します。</p>
+<script>
+// ---- SharePoint REST の簡易モック ------------------------------------
+(() => {
+  const store = { lists: new Map() }; // title -> {Id, fields:Set, items:[], nextId}
+  let guid = 1;
+  const newGuid = () => 'mock-guid-' + (guid++);
+
+  const getList = (title) => store.lists.get(title);
+  const json = (status, body) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body == null ? {} : body,
+    text: async () => body == null ? '' : JSON.stringify(body),
+  });
+
+  const realFetch = window.fetch;
+  window.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.includes('/_api/')) return realFetch(url, opts);
+    const headers = opts.headers || {};
+    const xm = headers['X-HTTP-Method'];
+    const method = xm || opts.method || 'GET';
+    const body = opts.body ? JSON.parse(opts.body) : null;
+    const path = decodeURIComponent(u.slice(u.indexOf('/_api/')));
+
+    if (path.startsWith('/_api/contextinfo')) {
+      return json(200, { FormDigestValue: 'mock-digest', FormDigestTimeoutSeconds: 1800 });
+    }
+
+    // リスト作成
+    if (path === '/_api/web/lists' && method === 'POST') {
+      const l = { Id: newGuid(), fields: new Set(['Title']), items: [], nextId: 1 };
+      store.lists.set(body.Title, l);
+      return json(201, { Id: l.Id });
+    }
+
+    const m = path.match(/^\/_api\/web\/lists\/getbytitle\('([^']*)'\)(.*)$/);
+    if (!m) return json(400, { 'odata.error': { message: { value: 'mock: unknown ' + path } } });
+    const [, title, rest] = m;
+    const list = getList(title);
+    if (!list) return json(404, {});
+
+    if (rest.startsWith('?')) return json(200, { Id: list.Id });
+
+    if (rest.startsWith('/fields/getbyinternalnameortitle(')) {
+      const f = rest.match(/\('([^']*)'\)/)[1];
+      if (method === 'POST' && xm === 'MERGE') return json(204, null); // 表示名変更
+      return list.fields.has(f) ? json(200, { Id: newGuid() }) : json(404, {});
+    }
+    if (rest === '/fields' && method === 'POST') {
+      list.fields.add(body.Title);
+      return json(201, { Id: newGuid() });
+    }
+    if (rest === '/fields/createfieldasxml' && method === 'POST') {
+      const name = body.parameters.SchemaXml.match(/Name='([^']*)'/)[1];
+      list.fields.add(name);
+      return json(201, { Id: newGuid() });
+    }
+    if (rest.startsWith('/defaultview/viewfields/addviewfield(')) return json(204, null);
+
+    // アイテム
+    if (rest.startsWith('/items')) {
+      const im = rest.match(/^\/items\((\d+)\)/);
+      if (im) {
+        const id = +im[1];
+        const idx = list.items.findIndex((x) => x.Id === id);
+        if (idx < 0) return json(404, {});
+        if (xm === 'DELETE') { list.items.splice(idx, 1); return json(204, null); }
+        if (xm === 'MERGE') { Object.assign(list.items[idx], body); return json(204, null); }
+      }
+      if (method === 'POST' && !xm) {
+        const it = Object.assign({ Id: list.nextId++ }, body);
+        list.items.push(it);
+        return json(201, { Id: it.Id });
+      }
+      // GET — $expand=Level1 を含むときは Level1:{Id} 形式に整形して返す
+      const expand = rest.includes('$expand=Level1');
+      const items = [...list.items].sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0) || a.Id - b.Id)
+        .map((x) => {
+          const o = { Id: x.Id, Title: x.Title, SortOrder: x.SortOrder, Active: x.Active };
+          if (expand) o.Level1 = x.Level1Id ? { Id: x.Level1Id } : null;
+          return o;
+        });
+      return json(200, { value: items });
+    }
+    return json(400, { 'odata.error': { message: { value: 'mock: unhandled ' + method + ' ' + rest } } });
+  };
+})();
+</script>
+<script src="../dist/app.js"></script>
+</body>
+</html>
