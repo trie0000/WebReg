@@ -70,6 +70,12 @@
         if (body && body.ClientValidationFormula != null) (list.fieldProps[f] = list.fieldProps[f] || {}).ClientValidationFormula = body.ClientValidationFormula;
         return json(204, null);
       }
+      if (xm === 'DELETE') {
+        if (!list.fields.has(f)) return json(400, { 'odata.error': { message: { value: "列 '" + f + "' が存在しません。" } } });
+        list.fields.delete(f);
+        delete list.fieldProps[f];
+        return json(204, null);
+      }
       // 実機同様: 存在しない列は 404 ではなく 400 ArgumentException
       return list.fields.has(f)
         ? json(200, Object.assign({ Id: newGuid(), Title: list.fields.get(f) }, list.fieldProps[f] || {}))
@@ -77,7 +83,9 @@
     }
     if (rest.startsWith('/fields?') && rest.includes('$filter=InternalName eq')) {
       const f = rest.match(/InternalName eq '([^']*)'/)[1];
-      return json(200, { value: list.fields.has(f) ? [{ Id: newGuid() }] : [] });
+      list.fieldProps = list.fieldProps || {};
+      return json(200, { value: list.fields.has(f)
+        ? [Object.assign({ Id: newGuid(), Title: list.fields.get(f) }, list.fieldProps[f] || {})] : [] });
     }
     if (rest.startsWith('/fields?') && rest.includes("$filter=startswith(InternalName,")) {
       const pre = rest.match(/startswith\(InternalName,'([^']*)'\)/)[1];
@@ -89,17 +97,27 @@
     }
     if (rest === '/fields' && method === 'POST') {
       list.fields.set(body.Title, body.Title);
+      list.fieldProps = list.fieldProps || {};
+      const kinds = { 2: 'Text', 3: 'Note', 4: 'DateTime', 6: 'Choice', 8: 'Boolean', 9: 'Number', 17: 'Calculated' };
+      list.fieldProps[body.Title] = { TypeAsString: kinds[body.FieldTypeKind] || 'Text' };
       return json(201, { Id: newGuid() });
     }
     if (rest === '/fields/createfieldasxml' && method === 'POST') {
       const xml = body.parameters.SchemaXml;
       const name = xml.match(/ Name='([^']*)'/)[1];
       const disp = (xml.match(/DisplayName='([^']*)'/) || [null, name])[1];
+      // 実機同様: 同名フィールドの再作成はエラー
+      if (list.fields.has(name)) return json(400, { 'odata.error': { message: { value: "列 '" + name + "' は既に存在します。" } } });
       list.fields.set(name, disp);
+      list.fieldProps = list.fieldProps || {};
+      const type = (xml.match(/ Type='([^']*)'/) || [null, 'Text'])[1];
+      list.fieldProps[name] = { TypeAsString: type };
       const choices = [...xml.matchAll(/<CHOICE>([^<]*)<\/CHOICE>/g)].map((m) => m[1]);
-      if (choices.length) {
-        list.fieldProps = list.fieldProps || {};
-        list.fieldProps[name] = { Choices: choices };
+      if (choices.length) list.fieldProps[name].Choices = choices;
+      const fm = xml.match(/<Formula>([\s\S]*?)<\/Formula>/);
+      if (fm) {
+        list.fieldProps[name].Formula = fm[1]
+          .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
       }
       return json(201, { Id: newGuid() });
     }

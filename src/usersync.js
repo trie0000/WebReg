@@ -134,56 +134,105 @@ async function syncMastersToUserList(state, log) {
 
   // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
+  // 集計は2段構成にする(ユーザー提案の方式):
+  //   1) 組織区分1ごとの中間集計列 O2S_<L1のID>(その配下の組織区分2だけの☑/☐連結)
+  //   2) 統合列 OrgLevel2 は「組織区分1の値に応じて該当の中間列を参照する」だけ
+  // 1本の式が巨大化しないため、SP の式長上限(約8千文字)に組織数が増えても当たらない。
+  // それでも収まらない場合(1つの組織区分1に大量の組織区分2がある等)はテキスト列へ移行
   log('集計列(' + LABEL_L2 + ')を更新中…');
-  // 組織区分1ごとの分岐は「ネストIF」ではなく相互排他なIFの連結にする。
-  // ネストだと組織区分1の数だけ入れ子が深くなり、SPのIF入れ子上限(約19)で
-  // 式の作成が失敗する(組織数の多い実データで顕在化)。連結なら深さは常に一定
-  const terms = [];
+  const FORMULA_LIMIT = 7000;
+  const subDefs = []; // {internal, l1, formula}
   for (const l1 of activeL1) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
     const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
       .join('&" / "&');
     const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
-    terms.push('IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) +
-      '",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
+    subDefs.push({
+      internal: 'O2S_' + l1.Id,
+      l1,
+      formula: '=IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')',
+    });
   }
-  const formula = terms.length ? '=' + terms.join('&') : '=""';
-  // 集計列の方式: 通常は計算列(式)。式が SP の長さ上限(約8千文字)を超える規模では
-  // ツールが値を書き込むテキスト列へ自動移行する(SPフォームからは非表示)
+  const finalFormula = subDefs.length
+    ? '=' + subDefs.map((d) => 'IF([' + LABEL_L1 + ']="' + safeTitle(d.l1.Title) + '",[' + d.internal + '],"")').join('&')
+    : '=""';
+  const fitsCalc = finalFormula.length <= FORMULA_LIMIT &&
+    subDefs.every((d) => d.formula.length <= FORMULA_LIMIT);
+
+  // 列が無い場合に 400 を出さないよう $filter で照会(実機の罠: 404 ではなく 400)
   let org2Type = '';
   try {
-    org2Type = (await spGet(lt(LIST_USERS) +
-      "/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString || '';
+    const fr = await spGet(lt(LIST_USERS) +
+      "/fields?$select=TypeAsString&$filter=InternalName eq 'OrgLevel2'");
+    org2Type = ((fr.value || [])[0] || {}).TypeAsString || '';
   } catch { /* 未作成 */ }
 
-  if (org2Type === 'Text') {
-    summary.org2Mode = 'text'; // 既にテキスト方式へ移行済み
-  } else {
+  if (fitsCalc) {
     try {
+      // 中間集計列の ensure と式更新(式が変わったときだけ MERGE)
+      const existingSubs = await spGet(lt(LIST_USERS) +
+        "/fields?$select=InternalName,Formula&$filter=startswith(InternalName,'O2S_')");
+      const subByName = new Map((existingSubs.value || []).map((f) => [f.InternalName, f.Formula || '']));
+      for (const d of subDefs) {
+        if (!subByName.has(d.internal)) {
+          const refs = "<FieldRef Name='L2All'/>" +
+            activeL2.filter((x) => x.Level1.Id === d.l1.Id)
+              .map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+          const xml = "<Field Type='Calculated' DisplayName='" + d.internal + "' Name='" + d.internal +
+            "' StaticName='" + d.internal + "' ResultType='Text' ReadOnly='TRUE'>" +
+            '<Formula>' + xmlEsc(d.formula) + '</Formula><FieldRefs>' + refs + '</FieldRefs></Field>';
+          await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+        } else if (subByName.get(d.internal) !== d.formula) {
+          await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + d.internal + "')",
+            { Formula: d.formula });
+        }
+      }
+      // 使われなくなった中間列は削除(計算列なのでデータ消失なし)
+      for (const name of subByName.keys()) {
+        if (!subDefs.some((d) => d.internal === name)) {
+          try {
+            await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + name + "')");
+          } catch { /* ignore */ }
+        }
+      }
+      // 過去にテキスト方式へ移行済みなら計算列に戻す(値は式で再計算されるため消失なし)
+      if (org2Type === 'Text') {
+        await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+        org2Type = '';
+      }
       if (!org2Type) {
         const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
           " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
-          "<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
+          "<FieldRefs><FieldRef Name='OrgLevel1'/></FieldRefs></Field>";
         await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
         await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
       }
-      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')",
+        { Title: LABEL_L2, Formula: finalFormula });
       summary.org2Mode = 'calc';
     } catch (e) {
-      // 式が上限超過など → テキスト列へ移行
+      summary.formulaWarn = e.message + '(統合式 ' + finalFormula.length + '文字)';
+    }
+  }
+
+  if (summary.org2Mode !== 'calc') {
+    // フォールバック: ツールが値を書き込むテキスト列へ移行
+    if (org2Type === 'Text') {
+      summary.org2Mode = 'text';
+    } else {
       log(LABEL_L2 + '列をテキスト方式へ移行中…');
       try {
-        await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+        if (org2Type) {
+          await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+        }
         await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
-        // SP標準フォームには出さない(値はツールが書き込む)
         try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { /* ignore */ }
         try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { /* ignore */ }
         summary.org2Mode = 'text';
-        summary.org2Migrated = '集計式が上限を超えるため(' + formula.length + '文字)、' +
-          LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
+        summary.org2Migrated = '集計式が上限を超えるため、' + LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
       } catch (e2) {
-        summary.formulaWarn = e2.message + '(式の長さ ' + formula.length + '文字)';
+        summary.formulaWarn = (summary.formulaWarn || '') + ' / テキスト移行失敗: ' + e2.message;
       }
     }
   }

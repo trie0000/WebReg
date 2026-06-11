@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-f448be9e" !== 'undefined' ? "0.1.0-f448be9e" : 'dev';
+const BUILD = typeof "0.1.0-c8da75ab" !== 'undefined' ? "0.1.0-c8da75ab" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -339,47 +339,91 @@ await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
 summary.condWarn = '条件付き表示(L2All): ' + e.message;
 }
 log('集計列(' + LABEL_L2 + ')を更新中…');
-const terms = [];
+const FORMULA_LIMIT = 7000;
+const subDefs = [];
 for (const l1 of activeL1) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
 const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
 .join('&" / "&');
 const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
-terms.push('IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) +
-'",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
+subDefs.push({
+internal: 'O2S_' + l1.Id,
+l1,
+formula: '=IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')',
+});
 }
-const formula = terms.length ? '=' + terms.join('&') : '=""';
+const finalFormula = subDefs.length
+? '=' + subDefs.map((d) => 'IF([' + LABEL_L1 + ']="' + safeTitle(d.l1.Title) + '",[' + d.internal + '],"")').join('&')
+: '=""';
+const fitsCalc = finalFormula.length <= FORMULA_LIMIT &&
+subDefs.every((d) => d.formula.length <= FORMULA_LIMIT);
 let org2Type = '';
 try {
-org2Type = (await spGet(lt(LIST_USERS) +
-"/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString || '';
+const fr = await spGet(lt(LIST_USERS) +
+"/fields?$select=TypeAsString&$filter=InternalName eq 'OrgLevel2'");
+org2Type = ((fr.value || [])[0] || {}).TypeAsString || '';
 } catch { }
-if (org2Type === 'Text') {
-summary.org2Mode = 'text';
-} else {
+if (fitsCalc) {
 try {
+const existingSubs = await spGet(lt(LIST_USERS) +
+"/fields?$select=InternalName,Formula&$filter=startswith(InternalName,'O2S_')");
+const subByName = new Map((existingSubs.value || []).map((f) => [f.InternalName, f.Formula || '']));
+for (const d of subDefs) {
+if (!subByName.has(d.internal)) {
+const refs = "<FieldRef Name='L2All'/>" +
+activeL2.filter((x) => x.Level1.Id === d.l1.Id)
+.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+const xml = "<Field Type='Calculated' DisplayName='" + d.internal + "' Name='" + d.internal +
+"' StaticName='" + d.internal + "' ResultType='Text' ReadOnly='TRUE'>" +
+'<Formula>' + xmlEsc(d.formula) + '</Formula><FieldRefs>' + refs + '</FieldRefs></Field>';
+await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+} else if (subByName.get(d.internal) !== d.formula) {
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + d.internal + "')",
+{ Formula: d.formula });
+}
+}
+for (const name of subByName.keys()) {
+if (!subDefs.some((d) => d.internal === name)) {
+try {
+await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + name + "')");
+} catch { }
+}
+}
+if (org2Type === 'Text') {
+await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+org2Type = '';
+}
 if (!org2Type) {
 const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
 " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
-"<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
+"<FieldRefs><FieldRef Name='OrgLevel1'/></FieldRefs></Field>";
 await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
 }
-await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')",
+{ Title: LABEL_L2, Formula: finalFormula });
 summary.org2Mode = 'calc';
 } catch (e) {
+summary.formulaWarn = e.message + '(統合式 ' + finalFormula.length + '文字)';
+}
+}
+if (summary.org2Mode !== 'calc') {
+if (org2Type === 'Text') {
+summary.org2Mode = 'text';
+} else {
 log(LABEL_L2 + '列をテキスト方式へ移行中…');
 try {
+if (org2Type) {
 await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+}
 await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
 try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { }
 try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { }
 summary.org2Mode = 'text';
-summary.org2Migrated = '集計式が上限を超えるため(' + formula.length + '文字)、' +
-LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
+summary.org2Migrated = '集計式が上限を超えるため、' + LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
 } catch (e2) {
-summary.formulaWarn = e2.message + '(式の長さ ' + formula.length + '文字)';
+summary.formulaWarn = (summary.formulaWarn || '') + ' / テキスト移行失敗: ' + e2.message;
 }
 }
 }
@@ -2019,9 +2063,9 @@ state.l2 = r2.value || [];
 state.users = ru.value || [];
 if (state.usersReady) {
 try {
-state.org2Mode = ((await spGet(lt(LIST_USERS) +
-"/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString === 'Text')
-? 'text' : 'calc';
+const fr = await spGet(lt(LIST_USERS) +
+"/fields?$select=TypeAsString&$filter=InternalName eq 'OrgLevel2'");
+state.org2Mode = ((fr.value || [])[0] || {}).TypeAsString === 'Text' ? 'text' : 'calc';
 } catch {
 state.org2Mode = 'calc';
 }
