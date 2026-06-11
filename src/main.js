@@ -149,6 +149,7 @@ import { startUpdateWatcher } from './updater.js';
           <div class="pr-toolbar">
             <input type="text" class="pr-input" id="pr-add-l1" placeholder="第1階層の名称を入力">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加">まとめて</button>
           </div>
           <div class="pr-rows">${state.l1.map((x) =>
             rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
@@ -161,6 +162,7 @@ import { startUpdateWatcher } from './updater.js';
           <div class="pr-toolbar">
             <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称を入力">
             <button class="pr-btn pr-btn--primary" data-act="add-l2">${ico('plus')}追加</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加">まとめて</button>
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
             '<div class="pr-empty">未登録</div>'}</div>`
@@ -299,6 +301,48 @@ import { startUpdateWatcher } from './updater.js';
         localStorage.removeItem(LS_DEV_SOURCE);
       }
       toast('ok', '保存しました。次回のブックマークレット起動から反映されます');
+      return;
+    }
+
+    if (act === 'bulk-l1' || act === 'bulk-l2') {
+      const isL1 = act === 'bulk-l1';
+      const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
+      const targetLabel = isL1 ? '第1階層' : '「' + (selL1 ? selL1.Title : '') + '」配下の第2階層';
+      const text = await modal({
+        title: 'まとめて追加 — ' + targetLabel,
+        message: '1行に1件ずつ入力してください(Excel の列を貼り付けてもOK)。既存と重複する名称はスキップされます。確定は Cmd/Ctrl+Enter でも可。',
+        inputValue: '',
+        multiline: true,
+        okLabel: '追加する',
+      });
+      if (text == null) return;
+      const pool = isL1 ? state.l1
+        : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
+      const existing = new Set(pool.map((x) => x.Title));
+      const names = [];
+      let dup = 0;
+      for (const raw of text.split(/\r?\n/)) {
+        const n = raw.trim();
+        if (!n) continue;
+        if (existing.has(n)) { dup++; continue; }
+        existing.add(n);
+        names.push(n);
+      }
+      if (!names.length) {
+        toast('warn', '追加できる名称がありません' + (dup ? '(すべて既存と重複)' : ''));
+        return;
+      }
+      run('まとめて追加', async () => {
+        let order = nextOrder(pool);
+        for (const n of names) {
+          const body = { Title: n, SortOrder: order, Active: true };
+          if (!isL1) body.Level1Id = state.selectedL1;
+          await addItem(isL1 ? LIST_L1 : LIST_L2, body);
+          order += 10;
+        }
+        await reload();
+        toast('ok', names.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
+      });
       return;
     }
 

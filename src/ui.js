@@ -43,8 +43,9 @@ export function toast(kind, msg) {
 
 // inputValue を渡すと入力モーダル(resolve: string|null)、
 // 渡さなければ確認モーダル(resolve: boolean)。
+// multiline: true で複数行テキストエリア(自動伸縮・上限55vh。確定は Cmd/Ctrl+Enter のみ)。
 // backdrop は mousedown 起点で判定(ドラッグ操作の誤クローズ防止)。
-export function modal({ title, message, inputValue, okLabel, danger }) {
+export function modal({ title, message, inputValue, multiline, okLabel, danger }) {
   return new Promise((resolve) => {
     const hasInput = inputValue !== undefined;
     const back = el(`
@@ -52,7 +53,9 @@ export function modal({ title, message, inputValue, okLabel, danger }) {
         <div class="pr-modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
           <h4></h4>
           ${message != null ? '<div class="pr-modal-msg"></div>' : ''}
-          ${hasInput ? '<input class="pr-input" type="text">' : ''}
+          ${hasInput ? (multiline
+            ? '<textarea class="pr-input pr-modal-ta" rows="8"></textarea>'
+            : '<input class="pr-input" type="text">') : ''}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
             <button class="pr-btn ${danger ? 'pr-btn--danger' : 'pr-btn--primary'}" data-mact="ok"></button>
@@ -61,8 +64,16 @@ export function modal({ title, message, inputValue, okLabel, danger }) {
       </div>`);
     back.querySelector('h4').textContent = title;
     if (message != null) back.querySelector('.pr-modal-msg').textContent = message;
-    const input = back.querySelector('input');
+    const input = back.querySelector('input, textarea');
     if (input) input.value = inputValue;
+    if (input && multiline) {
+      const fit = () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight + 4, window.innerHeight * 0.55) + 'px';
+      };
+      input.addEventListener('input', fit);
+      setTimeout(fit, 0);
+    }
     back.querySelector('[data-mact="ok"]').textContent = okLabel || 'OK';
 
     const done = (val) => {
@@ -87,7 +98,8 @@ export function modal({ title, message, inputValue, okLabel, danger }) {
       // IME 変換確定の Enter で確定させない(keyCode 229 は古い Chrome/Safari 対策)
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
-      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (hasInput && e.target === input))) ok();
+      // 複数行入力では Enter は改行。確定は Cmd/Ctrl+Enter のみ
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (hasInput && !multiline && e.target === input))) ok();
     };
     document.addEventListener('keydown', onKey, true);
 

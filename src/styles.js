@@ -238,5 +238,10 @@ export const css = `
 #${ROOT_ID} .pr-modal h4{ margin:0; font-size:var(--fs-lg); font-weight:600; line-height:var(--lh-tight); }
 #${ROOT_ID} .pr-modal .pr-modal-msg{ font-size:var(--fs-md); color:var(--ink-3); user-select:text; }
 #${ROOT_ID} .pr-modal .pr-input{ min-height:34px !important; }
+#${ROOT_ID} .pr-modal .pr-modal-ta{
+  min-height:160px !important; max-height:55vh !important;
+  padding:var(--s-3) var(--s-4) var(--s-5) !important;
+  resize:none !important; overflow:auto !important; line-height:1.6 !important;
+}
 #${ROOT_ID} .pr-modal-actions{ display:flex; justify-content:flex-end; gap:var(--s-3); margin-top:var(--s-2); }
 `;
