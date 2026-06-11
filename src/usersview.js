@@ -135,6 +135,7 @@ function usersViewHtml(state) {
            <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
         : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
       <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
     </div>
     <div class="pr-toolbar pr-toolbar--users">

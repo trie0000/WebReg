@@ -169,6 +169,88 @@
     });
   }
 
+  // CSV インポート(testText を渡すとファイル選択をスキップ — テスト用)
+  async function userImportFlow(testText) {
+    let text = testText;
+    if (text == null) {
+      const file = await pickCsvFile();
+      if (!file) return;
+      try {
+        text = decodeCsvBuffer(await file.arrayBuffer());
+      } catch (e) {
+        toast('err', 'ファイルの読み込みに失敗しました — ' + e.message);
+        return;
+      }
+    }
+    let plan;
+    try {
+      plan = buildImportPlan(state, parseCsvText(text));
+    } catch (e) {
+      toast('err', 'CSVの解析に失敗しました — ' + e.message);
+      return;
+    }
+    if (!plan.targets.length) {
+      toast('warn', '取り込み対象の行がありません(権限が対象外、または空データ)');
+      return;
+    }
+    const ok = await openImportConfirmModal(plan);
+    if (!ok) return;
+    run('インポート', async () => {
+      // 1) 未登録マスタの自動登録(組織区分1 → 再読込 → 組織区分2)
+      if (plan.missingL1.length || plan.missingL2.length) {
+        setStatus('未登録マスタを登録中…');
+        let order1 = nextOrder(state.l1);
+        for (const t of plan.missingL1) {
+          await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+          order1 += 10;
+        }
+        if (plan.missingL1.length) await loadAll();
+        for (const m of plan.missingL2) {
+          const l1 = state.l1.find((x) => x.Title === m.l1);
+          if (!l1) continue;
+          const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
+          await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+          await loadAll();
+        }
+      }
+      // 2) 列・選択肢・集計式を反映
+      setStatus('マスタをリストへ反映中…');
+      await syncMastersToUserList(state, setStatus);
+      // 取込権限(閲覧者など)が選択肢に無ければ追加
+      const needPerms = [...new Set(plan.targets.map((t) => t.permission))]
+        .filter((pm) => !state.choices.permission.includes(pm));
+      if (needPerms.length) {
+        const merged = state.choices.permission.concat(needPerms);
+        await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
+        state.choices = { changeType: state.choices.changeType, permission: merged };
+      }
+      // 3) 行のアップサート(キー: メールアドレス、無ければ氏名)
+      setStatus('利用者を取込中…');
+      const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) || u.Title, u]));
+      let added = 0;
+      let updated = 0;
+      for (const t of plan.targets) {
+        const body = buildImportBody(state, t);
+        const key = (t.email || '').toLowerCase() || t.name;
+        const exist = byKey.get(key);
+        if (exist) {
+          // 取込内容に無い既存の組織区分2チェックはクリア
+          for (const k of Object.keys(exist)) {
+            if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
+          }
+          await updateItem(LIST_USERS, exist.Id, body);
+          updated++;
+        } else {
+          await addItem(LIST_USERS, body);
+          added++;
+        }
+      }
+      await reload();
+      toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
+        (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
+    });
+  }
+
   async function userBulkFlow() {
     const ids = [...selectedUserIds];
     if (!ids.length) return;
@@ -353,6 +435,7 @@
     if (act === 'select') { state.selectedL1 = id; render(); return; }
 
     if (act === 'user-add') { userAddFlow(); return; }
+    if (act === 'user-import') { userImportFlow(); return; }
     if (act === 'user-bulk') { userBulkFlow(); return; }
     if (act === 'user-del-selected') { userDeleteFlow(); return; }
     if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -492,7 +575,7 @@
   // ---------------------------------------------------------------- start
   render();
   run('読込', reload);
-  window.__webreg = { state, build: BUILD };
+  window.__webreg = { state, build: BUILD, importCsvText: (t) => userImportFlow(t) };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 
   // 利用者一覧の定期ポーリング(他ユーザーの変更検知→通知)。新インスタンス起動時に旧タイマー停止

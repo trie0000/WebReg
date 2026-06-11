@@ -36,7 +36,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-2344fb4a" !== 'undefined' ? "0.1.0-2344fb4a" : 'dev';
+const BUILD = typeof "0.1.0-7869246e" !== 'undefined' ? "0.1.0-7869246e" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1127,6 +1127,7 @@ return `
            <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
 : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
       <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
     </div>
     <div class="pr-toolbar pr-toolbar--users">
@@ -1568,6 +1569,203 @@ document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
 back.querySelector('input[name="pr-src"]:checked').focus();
 }
+const CSV_PERM_MAP = {
+'事業場ITセキュリティ責任者': '更新者',
+'情報閲覧者': '閲覧者',
+};
+function decodeCsvBuffer(buf) {
+try {
+return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+} catch {
+return new TextDecoder('shift_jis').decode(buf);
+}
+}
+function parseCsvText(text) {
+if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+const rows = [];
+let row = [];
+let field = '';
+let inQ = false;
+for (let i = 0; i < text.length; i++) {
+const c = text[i];
+if (inQ) {
+if (c === '"') {
+if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false;
+} else field += c;
+} else if (c === '"') {
+inQ = true;
+} else if (c === ',') {
+row.push(field); field = '';
+} else if (c === '\n') {
+row.push(field); field = '';
+rows.push(row); row = [];
+} else if (c !== '\r') {
+field += c;
+}
+}
+if (field !== '' || row.length) { row.push(field); rows.push(row); }
+return rows.filter((r) => r.some((v) => String(v).trim() !== ''));
+}
+const normHeader = (s) => String(s || '').replace(/[\s　「」]/g, '');
+const CSV_HEADERS = {
+name: '氏名',
+company: '会社名',
+email: 'メールアドレス',
+perm: '権限',
+org1: '組織区分第1階層',
+org2: '組織区分第2階層',
+region: '地域区分',
+retired: '退職者フラグ',
+firstBy: '初回登録者',
+firstAt: '初回登録日時',
+lastBy: '最終更新者',
+lastAt: '最終更新日時',
+};
+function buildImportPlan(state, rows) {
+if (rows.length < 3) throw new Error('データ行がありません(1行目ヘッダー/2行目説明/3行目以降データ)');
+const header = rows[0].map(normHeader);
+const idx = {};
+for (const [key, label] of Object.entries(CSV_HEADERS)) {
+idx[key] = header.indexOf(label);
+}
+for (const required of ['name', 'perm', 'org1']) {
+if (idx[required] < 0) throw new Error('ヘッダー「' + CSV_HEADERS[required] + '」が見つかりません');
+}
+const cell = (r, key) => (idx[key] >= 0 ? String(r[idx[key]] || '').trim() : '');
+const targets = [];
+let skippedPerm = 0;
+let retired = 0;
+for (const r of rows.slice(2)) {
+const name = cell(r, 'name');
+if (!name) continue;
+const mapped = CSV_PERM_MAP[cell(r, 'perm')];
+if (!mapped) { skippedPerm++; continue; }
+const isRetired = cell(r, 'retired') === '1';
+if (isRetired) retired++;
+targets.push({
+name,
+company: cell(r, 'company'),
+email: cell(r, 'email'),
+permission: mapped,
+org1: cell(r, 'org1'),
+org2names: cell(r, 'org2').split(/[，、,]/).map((x) => x.trim()).filter(Boolean),
+region: cell(r, 'region'),
+retired: isRetired,
+firstBy: cell(r, 'firstBy'),
+firstAt: cell(r, 'firstAt'),
+lastBy: cell(r, 'lastBy'),
+lastAt: cell(r, 'lastAt'),
+});
+}
+const l1ByTitle = new Map(state.l1.map((x) => [x.Title, x]));
+const l2Keys = new Set(state.l2.filter((x) => x.Level1).map((x) => {
+const l1 = state.l1.find((y) => y.Id === x.Level1.Id);
+return (l1 ? l1.Title : '') + ' ' + x.Title;
+}));
+const missingL1 = [];
+const missingL2 = [];
+for (const t of targets) {
+if (t.org1 && !l1ByTitle.has(t.org1) && !missingL1.includes(t.org1)) missingL1.push(t.org1);
+for (const nm of t.org2names) {
+const key = t.org1 + ' ' + nm;
+if (!l2Keys.has(key)) {
+l2Keys.add(key);
+missingL2.push({ l1: t.org1, name: nm });
+}
+}
+}
+return { targets, skippedPerm, retired, missingL1, missingL2 };
+}
+function buildImportBody(state, t) {
+const notes = [];
+if (t.region) notes.push('地域区分: ' + t.region);
+if (t.firstBy || t.firstAt) notes.push('初回登録: ' + [t.firstBy, t.firstAt].filter(Boolean).join(' '));
+if (t.lastBy || t.lastAt) notes.push('最終更新: ' + [t.lastBy, t.lastAt].filter(Boolean).join(' '));
+const body = {
+Title: t.name,
+Company: t.company,
+Email: t.email,
+ChangeType: '変更なし',
+Permission: t.permission,
+OrgLevel1: t.org1,
+Notes: notes.join('\n'),
+SystemDeleted: t.retired === true,
+L2All: false,
+};
+const l1 = state.l1.find((x) => x.Title === t.org1);
+if (l1) {
+for (const nm of t.org2names) {
+const m = state.l2.find((x) => x.Level1 && x.Level1.Id === l1.Id && x.Title === nm);
+if (m) body['L2_' + m.Id] = true;
+}
+}
+return body;
+}
+function openImportConfirmModal(plan) {
+return new Promise((resolve) => {
+const missing = [];
+for (const t of plan.missingL1) missing.push(esc(LABEL_L1) + ': ' + esc(t));
+for (const m of plan.missingL2) missing.push(esc(LABEL_L2) + ': ' + esc(m.name) + '(' + esc(m.l1) + ')');
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="CSVインポートの確認">
+          <h4>CSVインポートの確認</h4>
+          <div class="pr-kv">取込対象: <code>${plan.targets.length}件</code>
+            (うち退職者 ${plan.retired}件は論理削除として取込)
+            ${plan.skippedPerm ? ' / 対象外の権限 ' + plan.skippedPerm + '件はスキップ' : ''}</div>
+          ${missing.length ? `
+          <div class="pr-field">
+            <label>マスタ未登録の組織(OK でマスタへ自動登録してから取り込みます)</label>
+            <div class="pr-checks" style="display:block; max-height:180px; overflow:auto;">
+              ${missing.map((m) => '<div>' + m + '</div>').join('')}
+            </div>
+          </div>` : '<span class="pr-note">マスタ未登録の組織はありません。</span>'}
+          <span class="pr-note">同じメールアドレス(無ければ氏名)の既存行は上書き更新されます。</span>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">${missing.length ? 'マスタ登録して取り込む' : '取り込む'}</button>
+          </div>
+        </div>
+      </div>`);
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(false);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) done(b.dataset.mact === 'ok');
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) done(true);
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('[data-mact="ok"]').focus();
+});
+}
+function pickCsvFile() {
+return new Promise((resolve) => {
+const inp = document.createElement('input');
+inp.type = 'file';
+inp.accept = '.csv,text/csv';
+inp.style.display = 'none';
+let settled = false;
+const settle = (v) => { if (!settled) { settled = true; resolve(v); inp.remove(); } };
+inp.addEventListener('change', () => settle(inp.files && inp.files[0] ? inp.files[0] : null));
+window.addEventListener('focus', () => setTimeout(() => settle(null), 500), { once: true });
+document.body.appendChild(inp);
+inp.click();
+});
+}
 const CHECK_INTERVAL = 30000;
 function applyUpdate(src, ver) {
 window.__webregSource = Object.assign({}, src, { ver });
@@ -1765,6 +1963,81 @@ await reload();
 toast('ok', '「' + result + '」を保存しました');
 });
 }
+async function userImportFlow(testText) {
+let text = testText;
+if (text == null) {
+const file = await pickCsvFile();
+if (!file) return;
+try {
+text = decodeCsvBuffer(await file.arrayBuffer());
+} catch (e) {
+toast('err', 'ファイルの読み込みに失敗しました — ' + e.message);
+return;
+}
+}
+let plan;
+try {
+plan = buildImportPlan(state, parseCsvText(text));
+} catch (e) {
+toast('err', 'CSVの解析に失敗しました — ' + e.message);
+return;
+}
+if (!plan.targets.length) {
+toast('warn', '取り込み対象の行がありません(権限が対象外、または空データ)');
+return;
+}
+const ok = await openImportConfirmModal(plan);
+if (!ok) return;
+run('インポート', async () => {
+if (plan.missingL1.length || plan.missingL2.length) {
+setStatus('未登録マスタを登録中…');
+let order1 = nextOrder(state.l1);
+for (const t of plan.missingL1) {
+await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+order1 += 10;
+}
+if (plan.missingL1.length) await loadAll();
+for (const m of plan.missingL2) {
+const l1 = state.l1.find((x) => x.Title === m.l1);
+if (!l1) continue;
+const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
+await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+await loadAll();
+}
+}
+setStatus('マスタをリストへ反映中…');
+await syncMastersToUserList(state, setStatus);
+const needPerms = [...new Set(plan.targets.map((t) => t.permission))]
+.filter((pm) => !state.choices.permission.includes(pm));
+if (needPerms.length) {
+const merged = state.choices.permission.concat(needPerms);
+await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
+state.choices = { changeType: state.choices.changeType, permission: merged };
+}
+setStatus('利用者を取込中…');
+const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) || u.Title, u]));
+let added = 0;
+let updated = 0;
+for (const t of plan.targets) {
+const body = buildImportBody(state, t);
+const key = (t.email || '').toLowerCase() || t.name;
+const exist = byKey.get(key);
+if (exist) {
+for (const k of Object.keys(exist)) {
+if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
+}
+await updateItem(LIST_USERS, exist.Id, body);
+updated++;
+} else {
+await addItem(LIST_USERS, body);
+added++;
+}
+}
+await reload();
+toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
+(plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
+});
+}
 async function userBulkFlow() {
 const ids = [...selectedUserIds];
 if (!ids.length) return;
@@ -1932,6 +2205,7 @@ return;
 }
 if (act === 'select') { state.selectedL1 = id; render(); return; }
 if (act === 'user-add') { userAddFlow(); return; }
+if (act === 'user-import') { userImportFlow(); return; }
 if (act === 'user-bulk') { userBulkFlow(); return; }
 if (act === 'user-del-selected') { userDeleteFlow(); return; }
 if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -2063,7 +2337,7 @@ await syncMastersToUserList(state, setStatus);
 });
 render();
 run('読込', reload);
-window.__webreg = { state, build: BUILD };
+window.__webreg = { state, build: BUILD, importCsvText: (t) => userImportFlow(t) };
 startUpdateWatcher(BUILD);
 if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
 const pollUsers = async () => {
