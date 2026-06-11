@@ -1,7 +1,7 @@
-/* permreg — システム利用者の権限登録リスト 管理用 bookmarklet 本体
+/* webreg — システム利用者の権限登録リスト 管理用 bookmarklet 本体
  *
  * 配布は loader 方式(src/loader.js → dist/bookmarklet.txt)。本体は
- * dist/permreg.bundle.js として SP のドキュメントライブラリ or ローカル開発サーバから配信。
+ * dist/webreg.bundle.js として SP のドキュメントライブラリ or ローカル開発サーバから配信。
  * 開発基準は DEVELOPMENT.md、UI 規約は CLAUDE.md と Notion「UI/デザインルール」を参照。
  */
 
@@ -271,7 +271,7 @@
 
     app.innerHTML = `
       <div class="pr-topbar">
-        <span class="pr-title">permreg<small>利用者権限登録 管理</small></span>
+        <span class="pr-brand" aria-hidden="true">N</span><span class="pr-title">WebReg<small>利用者権限登録 管理</small></span>
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(getWebUrl())}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="reload" aria-label="再読込" title="再読込">${ico('refresh-cw')}</button>
@@ -492,11 +492,11 @@
   // ---------------------------------------------------------------- start
   render();
   run('読込', reload);
-  window.__permreg = { state, build: BUILD };
+  window.__webreg = { state, build: BUILD };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 
   // 利用者一覧の定期ポーリング(他ユーザーの変更検知→通知)。新インスタンス起動時に旧タイマー停止
-  if (window.__permregUsersPoll) clearInterval(window.__permregUsersPoll);
+  if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
   const pollUsers = async () => {
     if (document.hidden || state.busy || !state.usersReady) return;
     if (root.querySelector('.pr-backdrop')) return; // モーダル操作中は触らない
@@ -513,6 +513,6 @@
       render();
     } catch { /* 次回再試行 */ }
   };
-  window.__permregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
-  window.__permregPollNow = pollUsers; // テスト/手動確認用
+  window.__webregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
+  window.__webregPollNow = pollUsers; // テスト/手動確認用
 })();

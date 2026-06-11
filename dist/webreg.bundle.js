@@ -1,21 +1,30 @@
 (() => {
-const PRODUCT = 'permreg';
-const ROOT_ID = 'permreg-root';
-const LS_WEB_URL = 'permreg.webUrl';
-const LS_DEV_SOURCE = 'permreg.dev.bundle-source';
-const LS_DEV_BASE = 'permreg.dev.local-base';
-const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
+const PRODUCT = 'webreg';
+const ROOT_ID = 'webreg-root';
+const LS_WEB_URL = 'webreg.webUrl';
+const LS_DEV_SOURCE = 'webreg.dev.bundle-source';
+const LS_DEV_BASE = 'webreg.dev.local-base';
+const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/webreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['参照者', '更新者'];
 const POLL_INTERVAL = 30000;
-const LS_NOTIFY_EVENTS = 'permreg.notify.events';
-const LS_NOTIFY_READAT = 'permreg.notify.readAt';
+const LS_NOTIFY_EVENTS = 'webreg.notify.events';
+const LS_NOTIFY_READAT = 'webreg.notify.readAt';
 const LABEL_L1 = '組織区分1';
 const LABEL_L2 = '組織区分2';
-const BUILD = typeof "0.1.0-6490b90c" !== 'undefined' ? "0.1.0-6490b90c" : 'dev';
+try {
+for (const k of Object.keys(localStorage)) {
+if (!k.startsWith('permreg.')) continue;
+const nk = 'webreg.' + k.slice('permreg.'.length);
+if (localStorage.getItem(nk) == null) {
+localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/webreg'));
+}
+}
+} catch { }
+const BUILD = typeof "0.1.0-31850e7e" !== 'undefined' ? "0.1.0-31850e7e" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -86,7 +95,7 @@ const identity = '740c6a0b-85e2-48a0-a494-e0f1759d4aa7:site:' + site.Id +
 const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const params = orderedInternalNames.map((n) => '<Object Type="String">' + xmlEscape(n) + '</Object>').join('');
 const xml = '<Request AddExpandoFieldTypeSuffix="true" SchemaVersion="15.0.0.0" LibraryVersion="16.0.0.0"' +
-' ApplicationName="permreg" xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009"><Actions>' +
+' ApplicationName="webreg" xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009"><Actions>' +
 '<Method Name="Reorder" Id="1" ObjectPathId="2"><Parameters><Parameter Type="Array">' + params +
 '</Parameter></Parameters></Method>' +
 '<Method Name="Update" Id="3" ObjectPathId="5"><Parameters><Parameter Type="Boolean">false</Parameter></Parameters></Method>' +
@@ -213,7 +222,7 @@ await spMergeVerbose(path, 'SP.FieldChoice', { Title: display, Choices: { result
 async function ensureUserList(log) {
 if (await listId(LIST_USERS)) return false;
 log('「' + LIST_USERS + '」を作成中…');
-await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Description: '利用者の権限登録リスト(permreg)' });
+await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Description: '利用者の権限登録リスト(webreg)' });
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Title')", { Title: '利用者名' });
 await ensureField(LIST_USERS, 'Company', '会社名', { FieldTypeKind: 2 });
 await ensureField(LIST_USERS, 'Email', 'メールアドレス', { FieldTypeKind: 2 });
@@ -376,6 +385,12 @@ const css = `
   display:flex; align-items:center; gap:var(--s-4); flex:none;
   height:var(--topbar-h); padding:0 var(--gutter);
   background:var(--paper-2); border-bottom:1px solid var(--line);
+}
+#${ROOT_ID} .pr-brand{
+  width:24px; height:24px; border-radius:var(--r-2); flex:none;
+  background:var(--accent); color:var(--paper);
+  display:inline-flex; align-items:center; justify-content:center;
+  font-weight:600; font-size:12px; letter-spacing:0;
 }
 #${ROOT_ID} .pr-title{ font-size:var(--fs-base); font-weight:600; white-space:nowrap; }
 #${ROOT_ID} .pr-title small{ font-size:var(--fs-xs); color:var(--ink-3); font-weight:400; margin-left:var(--s-2); }
@@ -738,9 +753,9 @@ _root.appendChild(back);
 if (input) input.select();
 });
 }
-const GRID_W = 'permreg.colw.';
-const GRID_O = 'permreg.colorder.';
-const GRID_S = 'permreg.sort.';
+const GRID_W = 'webreg.colw.';
+const GRID_O = 'webreg.colorder.';
+const GRID_S = 'webreg.sort.';
 function gridColWidth(tableKey, colKey, fallback) {
 const v = parseInt(localStorage.getItem(GRID_W + tableKey + ':' + colKey) || '', 10);
 return Number.isFinite(v) ? v + 'px' : fallback;
@@ -1352,7 +1367,7 @@ openSettingsModalInner(state, resolve);
 });
 }
 function openSettingsModalInner(state, resolve) {
-const srcInfo = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
+const srcInfo = (window.__webregSource && window.__webregSource.base) || '直接実行(埋め込み/開発コンソール)';
 const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
 const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
 const back = el(`
@@ -1363,7 +1378,7 @@ const back = el(`
         <div class="pr-field">
           <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
           <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
-            SharePoint (ドキュメント/permreg/ に配置した dist)</label>
+            SharePoint (ドキュメント/webreg/ に配置した dist)</label>
           <label class="pr-radio"><input type="radio" name="pr-src" value="local" ${isLocal ? 'checked' : ''}>
             ローカル開発サーバ(開発者モード)</label>
         </div>
@@ -1375,7 +1390,7 @@ const back = el(`
         <div class="pr-field">
           <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
           <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
-          <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
+          <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
         <div class="pr-field">
           <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
@@ -1483,26 +1498,26 @@ back.querySelector('input[name="pr-src"]:checked').focus();
 }
 const CHECK_INTERVAL = 30000;
 function applyUpdate(src, ver) {
-window.__permregSource = Object.assign({}, src, { ver });
+window.__webregSource = Object.assign({}, src, { ver });
 if (src.dev) {
-fetch(src.base + '/permreg.bundle.js?v=' + encodeURIComponent(ver))
+fetch(src.base + '/webreg.bundle.js?v=' + encodeURIComponent(ver))
 .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
 .then((t) => { (0, eval)(t); })
 .catch((e) => toast('err', '自動更新に失敗しました — ' + (e && e.message || e)));
 } else {
-const o = document.getElementById('permreg-script');
+const o = document.getElementById('webreg-script');
 if (o) o.remove();
 const s = document.createElement('script');
-s.id = 'permreg-script';
-s.src = src.base + '/permreg.bundle.js?v=' + encodeURIComponent(ver);
+s.id = 'webreg-script';
+s.src = src.base + '/webreg.bundle.js?v=' + encodeURIComponent(ver);
 s.onerror = () => toast('err', '自動更新に失敗しました (script load error)');
 document.body.appendChild(s);
 }
 }
 function startUpdateWatcher(build) {
-if (window.__permregWatcher) clearInterval(window.__permregWatcher);
-if (window.__permregOnVisible) document.removeEventListener('visibilitychange', window.__permregOnVisible);
-const src = window.__permregSource;
+if (window.__webregWatcher) clearInterval(window.__webregWatcher);
+if (window.__webregOnVisible) document.removeEventListener('visibilitychange', window.__webregOnVisible);
+const src = window.__webregSource;
 if (!src || !src.base) return;
 let prompting = false;
 let skippedVer = '';
@@ -1531,10 +1546,10 @@ return;
 skippedVer = ver;
 prompting = false;
 }
-window.__permregWatcher = setInterval(() => { if (!document.hidden) check(); }, CHECK_INTERVAL);
-window.__permregOnVisible = () => { if (!document.hidden) check(); };
-document.addEventListener('visibilitychange', window.__permregOnVisible);
-window.__permregCheckNow = check;
+window.__webregWatcher = setInterval(() => { if (!document.hidden) check(); }, CHECK_INTERVAL);
+window.__webregOnVisible = () => { if (!document.hidden) check(); };
+document.addEventListener('visibilitychange', window.__webregOnVisible);
+window.__webregCheckNow = check;
 }
 (() => {
 'use strict';
@@ -1772,7 +1787,7 @@ const navItem = (view, label, sub) => `
         ${label}<small>${sub}</small></button>`;
 app.innerHTML = `
       <div class="pr-topbar">
-        <span class="pr-title">permreg<small>利用者権限登録 管理</small></span>
+        <span class="pr-brand" aria-hidden="true">N</span><span class="pr-title">WebReg<small>利用者権限登録 管理</small></span>
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(getWebUrl())}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="reload" aria-label="再読込" title="再読込">${ico('refresh-cw')}</button>
@@ -1976,9 +1991,9 @@ await syncMastersToUserList(state, setStatus);
 });
 render();
 run('読込', reload);
-window.__permreg = { state, build: BUILD };
+window.__webreg = { state, build: BUILD };
 startUpdateWatcher(BUILD);
-if (window.__permregUsersPoll) clearInterval(window.__permregUsersPoll);
+if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
 const pollUsers = async () => {
 if (document.hidden || state.busy || !state.usersReady) return;
 if (root.querySelector('.pr-backdrop')) return;
@@ -1994,7 +2009,7 @@ if (ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) ret
 render();
 } catch { }
 };
-window.__permregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
-window.__permregPollNow = pollUsers;
+window.__webregUsersPoll = setInterval(pollUsers, POLL_INTERVAL);
+window.__webregPollNow = pollUsers;
 })();
 })();

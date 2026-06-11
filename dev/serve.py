@@ -7,11 +7,11 @@ http://127.0.0.1 への fetch はブラウザの localhost 例外で許可され
 全リクエストを1行ログに出す(届いているかの切り分け用 — 全アプリ共通規約 §18)。
 
 配信フォルダはアプリの設定画面から変更できる(§18 bundle-dir パターン):
-  GET  /permreg/bundle-dir            … 現在の配信フォルダを返す {"dir": "..."}
-  POST /permreg/bundle-dir {"dir":..} … 存在チェックの上で切替(再起動で既定に戻る)
+  GET  /webreg/bundle-dir            … 現在の配信フォルダを返す {"dir": "..."}
+  POST /webreg/bundle-dir {"dir":..} … 存在チェックの上で切替(再起動で既定に戻る)
 
 使い方:  python3 dev/serve.py [port]
-         (port 既定 18086 = PERMREG_DEV_PORT、フォルダ既定 dist/ = PERMREG_BUNDLE_DIR)
+         (port 既定 18086 = WEBREG_DEV_PORT、フォルダ既定 dist/ = WEBREG_BUNDLE_DIR)
 """
 import json
 import os
@@ -22,16 +22,16 @@ from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-PORT = int(os.environ.get('PERMREG_DEV_PORT') or (sys.argv[1] if len(sys.argv) > 1 else 18086))
-DEFAULT_DIR = Path(os.environ.get('PERMREG_BUNDLE_DIR') or (Path(__file__).resolve().parent.parent / 'dist'))
+PORT = int(os.environ.get('WEBREG_DEV_PORT') or (sys.argv[1] if len(sys.argv) > 1 else 18086))
+DEFAULT_DIR = Path(os.environ.get('WEBREG_BUNDLE_DIR') or (Path(__file__).resolve().parent.parent / 'dist'))
 STATE = {'dir': DEFAULT_DIR.resolve()}
 
 
 class Handler(SimpleHTTPRequestHandler):
     def _clean(self):
         p = urllib.parse.unquote(self.path.split('?')[0])
-        if p.startswith('/permreg/') or p == '/permreg':
-            p = p[len('/permreg'):] or '/'
+        if p.startswith('/webreg/') or p == '/webreg':
+            p = p[len('/webreg'):] or '/'
         return p
 
     def translate_path(self, path):
@@ -67,8 +67,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {'error': 'リクエストの形式が不正です'})
         if not d.is_dir():
             return self._json(400, {'error': 'フォルダが存在しません: ' + str(d)})
-        if not (d / 'permreg.bundle.js').is_file():
-            return self._json(400, {'error': 'permreg.bundle.js が見つかりません: ' + str(d)})
+        if not (d / 'webreg.bundle.js').is_file():
+            return self._json(400, {'error': 'webreg.bundle.js が見つかりません: ' + str(d)})
         STATE['dir'] = d.resolve()
         print(datetime.now().strftime('%H:%M:%S'), 'bundle-dir ->', STATE['dir'])
         return self._json(200, {'dir': str(STATE['dir'])})
@@ -86,5 +86,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    print(f'permreg dev server: http://127.0.0.1:{PORT}/permreg/ -> {STATE["dir"]}')
+    print(f'WebReg dev server: http://127.0.0.1:{PORT}/webreg/ -> {STATE["dir"]}')
     ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

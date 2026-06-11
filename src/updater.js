@@ -1,4 +1,4 @@
-// 自動更新: ローダが記録した読込元(window.__permregSource)の version.txt を定期確認し、
+// 自動更新: ローダが記録した読込元(window.__webregSource)の version.txt を定期確認し、
 // 実行中の build と違えば更新モーダル → その場で新しい bundle を再読込する。
 // 中継サーバ不要(ローカル開発サーバ / SP のどちらでも同じ仕組み)。
 // 版比較は安定識別子 <ver>-<srcSha8> の単純比較(buildTime を含めないため誤検知しない)。
@@ -7,19 +7,19 @@ const CHECK_INTERVAL = 30000;
 
 function applyUpdate(src, ver) {
   // bundle 実行「前」に設定する(新インスタンスの監視がこれを読む)
-  window.__permregSource = Object.assign({}, src, { ver });
+  window.__webregSource = Object.assign({}, src, { ver });
   if (src.dev) {
     // ローカル開発サーバ: CSP 回避のため fetch → eval(ローダと同方式)
-    fetch(src.base + '/permreg.bundle.js?v=' + encodeURIComponent(ver))
+    fetch(src.base + '/webreg.bundle.js?v=' + encodeURIComponent(ver))
       .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then((t) => { (0, eval)(t); }) // 新 bundle が旧パネルを除去して再初期化する
       .catch((e) => toast('err', '自動更新に失敗しました — ' + (e && e.message || e)));
   } else {
-    const o = document.getElementById('permreg-script');
+    const o = document.getElementById('webreg-script');
     if (o) o.remove();
     const s = document.createElement('script');
-    s.id = 'permreg-script';
-    s.src = src.base + '/permreg.bundle.js?v=' + encodeURIComponent(ver);
+    s.id = 'webreg-script';
+    s.src = src.base + '/webreg.bundle.js?v=' + encodeURIComponent(ver);
     s.onerror = () => toast('err', '自動更新に失敗しました (script load error)');
     document.body.appendChild(s);
   }
@@ -27,10 +27,10 @@ function applyUpdate(src, ver) {
 
 function startUpdateWatcher(build) {
   // 自動更新で新インスタンスが起動したとき、旧インスタンスの監視を必ず止める
-  if (window.__permregWatcher) clearInterval(window.__permregWatcher);
-  if (window.__permregOnVisible) document.removeEventListener('visibilitychange', window.__permregOnVisible);
+  if (window.__webregWatcher) clearInterval(window.__webregWatcher);
+  if (window.__webregOnVisible) document.removeEventListener('visibilitychange', window.__webregOnVisible);
 
-  const src = window.__permregSource;
+  const src = window.__webregSource;
   if (!src || !src.base) return; // ローダ経由でない(埋め込み/直接実行)場合は監視しない
 
   let prompting = false;
@@ -62,8 +62,8 @@ function startUpdateWatcher(build) {
     prompting = false;
   }
 
-  window.__permregWatcher = setInterval(() => { if (!document.hidden) check(); }, CHECK_INTERVAL);
-  window.__permregOnVisible = () => { if (!document.hidden) check(); };
-  document.addEventListener('visibilitychange', window.__permregOnVisible);
-  window.__permregCheckNow = check; // テスト/手動確認用
+  window.__webregWatcher = setInterval(() => { if (!document.hidden) check(); }, CHECK_INTERVAL);
+  window.__webregOnVisible = () => { if (!document.hidden) check(); };
+  document.addEventListener('visibilitychange', window.__webregOnVisible);
+  window.__webregCheckNow = check; // テスト/手動確認用
 }

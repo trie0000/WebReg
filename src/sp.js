@@ -77,7 +77,7 @@ async function spReorderContentTypeFields(listTitle, orderedInternalNames) {
   const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const params = orderedInternalNames.map((n) => '<Object Type="String">' + xmlEscape(n) + '</Object>').join('');
   const xml = '<Request AddExpandoFieldTypeSuffix="true" SchemaVersion="15.0.0.0" LibraryVersion="16.0.0.0"' +
-    ' ApplicationName="permreg" xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009"><Actions>' +
+    ' ApplicationName="webreg" xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009"><Actions>' +
     '<Method Name="Reorder" Id="1" ObjectPathId="2"><Parameters><Parameter Type="Array">' + params +
     '</Parameter></Parameters></Method>' +
     '<Method Name="Update" Id="3" ObjectPathId="5"><Parameters><Parameter Type="Boolean">false</Parameter></Parameters></Method>' +

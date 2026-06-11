@@ -43,6 +43,12 @@ const css = `
   height:var(--topbar-h); padding:0 var(--gutter);
   background:var(--paper-2); border-bottom:1px solid var(--line);
 }
+#${ROOT_ID} .pr-brand{
+  width:24px; height:24px; border-radius:var(--r-2); flex:none;
+  background:var(--accent); color:var(--paper);
+  display:inline-flex; align-items:center; justify-content:center;
+  font-weight:600; font-size:12px; letter-spacing:0;
+}
 #${ROOT_ID} .pr-title{ font-size:var(--fs-base); font-weight:600; white-space:nowrap; }
 #${ROOT_ID} .pr-title small{ font-size:var(--fs-xs); color:var(--ink-3); font-weight:400; margin-left:var(--s-2); }
 

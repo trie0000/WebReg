@@ -5,9 +5,9 @@
 //     native draggable ではなく pointer イベント + elementFromPoint で自前実装
 //   - ソート: ヘッダクリックで昇順/降順トグル(▲/▼)。呼び出し側がクリックを処理する
 
-const GRID_W = 'permreg.colw.';
-const GRID_O = 'permreg.colorder.';
-const GRID_S = 'permreg.sort.';
+const GRID_W = 'webreg.colw.';
+const GRID_O = 'webreg.colorder.';
+const GRID_S = 'webreg.sort.';
 
 function gridColWidth(tableKey, colKey, fallback) {
   const v = parseInt(localStorage.getItem(GRID_W + tableKey + ':' + colKey) || '', 10);

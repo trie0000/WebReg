@@ -1,4 +1,4 @@
-# permreg — 利用者権限登録リスト 管理 bookmarklet
+# WebReg — 利用者権限登録リスト 管理 bookmarklet
 
 システム利用者の権限登録用 SharePoint リストを管理するための bookmarklet 群。
 サーバー不要・インストール不要で、SharePoint サイトのページ上から REST API で操作する。
@@ -29,11 +29,11 @@ python3 build.py    # Windows: python build.py
 src/ を依存順に連結して1つの IIFE にまとめ、軽量 minify(コメント・インデント・空行の除去。
 識別子の短縮はしない)を掛けて dist/ 一式を生成する。esbuild の minify と比べて +5% 程度のサイズ差。
 
-1. `dist/` 一式を SharePoint の **ドキュメント/permreg/** にアップロード
+1. `dist/` 一式を SharePoint の **ドキュメント/webreg/** にアップロード
 2. `dist/install-loader.html` をブラウザで開き、ボタンをブックマークバーへドラッグ
 3. 対象の SharePoint サイトを開いた状態でブックマークをクリックして起動
 
-bookmarklet はローダ(約3KB)のみ。本体(`permreg.bundle.js`)は起動のたびに
+bookmarklet はローダ(約3KB)のみ。本体(`webreg.bundle.js`)は起動のたびに
 `version.txt` を確認して SP から最新を読み込むため、**dist を SP に再アップするだけで全員に反映**される。
 オフライン/SP 未配置で使う場合のみ `dist/install.html`(丸ごと埋め込み版・自動更新なし)。
 
@@ -50,16 +50,16 @@ bookmarklet はローダ(約3KB)のみ。本体(`permreg.bundle.js`)は起動の
 ビルドした dist/ をローカルから配信して、SP へのアップロードなしで動作確認できる:
 
 ```sh
-python3 dev/serve.py   # http://127.0.0.1:18086/permreg/ → dist/ (CORS付き・全リクエストをログ)
+python3 dev/serve.py   # http://127.0.0.1:18086/webreg/ → dist/ (CORS付き・全リクエストをログ)
 ```
 
 アプリの「設定」メニュー → 配信元を「ローカル開発サーバ(開発者モード)」にして保存 →
 次回のブックマークレット起動からローカルの dist/ が読み込まれる。
-URL は設定画面で変更可能(既定 `http://127.0.0.1:18086/permreg`)。読込失敗時は alert で通知される。
+URL は設定画面で変更可能(既定 `http://127.0.0.1:18086/webreg`)。読込失敗時は alert で通知される。
 
-**配信フォルダ**も設定画面から変更できる(`permreg.bundle.js` を含むフォルダの絶対パスを指定して保存)。
-サーバ側 API は `GET/POST /permreg/bundle-dir`(POST は存在チェックあり)。再起動で既定
-(`PERMREG_BUNDLE_DIR` または dist/)に戻る。別ブランチのビルド先や持ち込んだ dist を即配信する用途。
+**配信フォルダ**も設定画面から変更できる(`webreg.bundle.js` を含むフォルダの絶対パスを指定して保存)。
+サーバ側 API は `GET/POST /webreg/bundle-dir`(POST は存在チェックあり)。再起動で既定
+(`WEBREG_BUNDLE_DIR` または dist/)に戻る。別ブランチのビルド先や持ち込んだ dist を即配信する用途。
 
 ## 動作確認(モック)
 

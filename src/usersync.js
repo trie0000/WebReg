@@ -40,7 +40,7 @@ async function setChoices(listTitle, internal, display, choices, fillIn) {
 async function ensureUserList(log) {
   if (await listId(LIST_USERS)) return false;
   log('「' + LIST_USERS + '」を作成中…');
-  await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Description: '利用者の権限登録リスト(permreg)' });
+  await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Description: '利用者の権限登録リスト(webreg)' });
   await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Title')", { Title: '利用者名' });
   await ensureField(LIST_USERS, 'Company', '会社名', { FieldTypeKind: 2 });
   await ensureField(LIST_USERS, 'Email', 'メールアドレス', { FieldTypeKind: 2 });

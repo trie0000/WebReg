@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""permreg ビルド(Python 標準ライブラリのみ / npm・Node 不要)。
+"""WebReg ビルド(Python 標準ライブラリのみ / npm・Node 不要)。
 
 src/ の各ファイルを決まった順序で連結して1つの IIFE にまとめ、
 軽量 minify(コメント・インデント・空行の除去。識別子の短縮はしない)を掛けて
 dist/ に配布物一式を生成する。命名は全アプリ共通規約(§17)に準拠:
-  dist/permreg.bundle.js   … 本体(SP/ローカル開発サーバが配信)
+  dist/webreg.bundle.js   … 本体(SP/ローカル開発サーバが配信)
   dist/version.txt         … 安定識別子 <ver>-<srcSha8>(buildTime を含めない)
-  dist/permreg.loader.js   … ローダ JS(= bookmarklet の中身)
+  dist/webreg.loader.js   … ローダ JS(= bookmarklet の中身)
   dist/bookmarklet.txt     … ローダの javascript: URL(コピー用)
   dist/install-loader.html … ローダ型インストールページ(推奨・配布物)
   dist/install.html        … 丸ごと埋込インストールページ(オフライン用)
@@ -187,7 +187,7 @@ ol li{{margin:6px 0}}
 <li>対象の SharePoint サイトのページを開く</li>
 <li>ブックマークをクリックして起動</li>
 </ol>
-<p><a class="bm" href="{esc_attr}">permreg 管理</a></p>
+<p><a class="bm" href="{esc_attr}">WebReg 管理</a></p>
 <p>ドラッグできない場合は、以下をコピーしてブックマークの URL に貼り付けてください。</p>
 <textarea readonly>{esc_text}</textarea>
 <p class="note">version: {version}</p>
@@ -199,7 +199,7 @@ def main():
     version = compute_version()
 
     parts = [(SRC / name).read_text() for name in ORDER]
-    bundle = '/* permreg bundle ' + version + ' */\n(() => {\n' + '\n'.join(parts) + '\n})();\n'
+    bundle = '/* webreg bundle ' + version + ' */\n(() => {\n' + '\n'.join(parts) + '\n})();\n'
     bundle = bundle.replace('__BUILD__', '"' + version + '"')
     bundle = minify_js(bundle)
 
@@ -211,20 +211,20 @@ def main():
     embed_bm = 'javascript:' + enc(bundle)
 
     DIST.mkdir(exist_ok=True)
-    (DIST / 'permreg.bundle.js').write_text(bundle)
+    (DIST / 'webreg.bundle.js').write_text(bundle)
     (DIST / 'version.txt').write_text(version + '\n')
-    (DIST / 'permreg.loader.js').write_text(loader)
+    (DIST / 'webreg.loader.js').write_text(loader)
     (DIST / 'bookmarklet.txt').write_text(loader_bm)
     (DIST / 'install-loader.html').write_text(install_html(
-        'permreg インストール(ローダ版・推奨)',
-        '本体は SP の ドキュメント/permreg/(または開発者モードのローカルサーバ)から毎回最新を読み込みます。dist 一式を SP に配置してから使ってください。',
+        'WebReg インストール(ローダ版・推奨)',
+        '本体は SP の ドキュメント/webreg/(または開発者モードのローカルサーバ)から毎回最新を読み込みます。dist 一式を SP に配置してから使ってください。',
         loader_bm, version))
     (DIST / 'install.html').write_text(install_html(
-        'permreg インストール(埋め込み版・オフライン用)',
+        'WebReg インストール(埋め込み版・オフライン用)',
         '本体を丸ごと埋め込んだ版です。自動更新されないため、通常はローダ版(install-loader.html)を使ってください。',
         embed_bm, version))
 
-    print(f'built: permreg.bundle.js {len(bundle)}B / loader bookmarklet {len(loader_bm)}B / version {version}')
+    print(f'built: webreg.bundle.js {len(bundle)}B / loader bookmarklet {len(loader_bm)}B / version {version}')
 
 
 if __name__ == '__main__':

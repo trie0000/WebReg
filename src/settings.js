@@ -7,7 +7,7 @@ function openSettingsModal(state) {
 }
 
 function openSettingsModalInner(state, resolve) {
-  const srcInfo = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
+  const srcInfo = (window.__webregSource && window.__webregSource.base) || '直接実行(埋め込み/開発コンソール)';
   const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
   const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
 
@@ -19,7 +19,7 @@ function openSettingsModalInner(state, resolve) {
         <div class="pr-field">
           <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
           <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
-            SharePoint (ドキュメント/permreg/ に配置した dist)</label>
+            SharePoint (ドキュメント/webreg/ に配置した dist)</label>
           <label class="pr-radio"><input type="radio" name="pr-src" value="local" ${isLocal ? 'checked' : ''}>
             ローカル開発サーバ(開発者モード)</label>
         </div>
@@ -31,7 +31,7 @@ function openSettingsModalInner(state, resolve) {
         <div class="pr-field">
           <label>配信フォルダ(ローカル配信サーバが参照するフォルダ)</label>
           <input type="text" class="pr-input" id="pr-bundle-dir" placeholder="配信サーバから取得中…">
-          <span class="pr-note">permreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
+          <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
         <div class="pr-field">
           <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>

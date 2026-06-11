@@ -4,7 +4,7 @@
     {
       "name": "harness",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8642", "--directory", "/Users/a21/mytools/permreg"],
+      "runtimeArgs": ["-m", "http.server", "8642", "--directory", "/Users/a21/mytools/webreg"],
       "port": 8642
     }
   ]

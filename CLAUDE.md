@@ -1,4 +1,4 @@
-# permreg — プロジェクト規約
+# WebReg — プロジェクト規約
 
 ## 機密・公開ポリシー(最重要・厳守)
 
@@ -24,7 +24,7 @@
 - `build.py` — `python3 build.py` で dist/ 一式を生成(連結+軽量minify+版識別子置換。命名は全アプリ共通規約 §17)
 - `dev/serve.py` — `python3 dev/serve.py` で dist/ を CORS 付き配信(開発者モード用、port 18086)
 - `VERSION` — semver のベース版数(版識別子は `<ver>-<srcSha8>`)
-- `test/harness.html` — SharePoint REST をメモリ上でモックして UI を確認するハーネス(`dist/permreg.bundle.js` を読み込む)
+- `test/harness.html` — SharePoint REST をメモリ上でモックして UI を確認するハーネス(`dist/webreg.bundle.js` を読み込む)
 
 ## 規約
 
@@ -38,8 +38,8 @@
 UI を触る前に Notion の「🎨 UI / デザインルール(全アプリ共通)」を必ず読むこと(Spira プロジェクトHUB 配下)。
 本リポジトリでの適用ポイント:
 
-- デザイントークンは Spira と同一(モスグリーン accent / paper 系 surface)。CSS 変数で `#permreg-root` に一元定義し、hex/px の直書き禁止
-- SP ホスト CSS シールド: ルールの先頭で `all: initial` → `#permreg-root .pr-*` + `!important`
+- デザイントークンは Spira と同一(モスグリーン accent / paper 系 surface)。CSS 変数で `#webreg-root` に一元定義し、hex/px の直書き禁止
+- SP ホスト CSS シールド: ルールの先頭で `all: initial` → `#webreg-root .pr-*` + `!important`
 - アイコンは Feather 風 SVG(stroke 1.7、`.pr-btn svg` に width/height 明示)。絵文字を UI 要素に使わない
 - 通知は右上トースト(ok 2秒 / warn 3秒 / error 手動 close + コピーボタン)。`alert()` 禁止
 - 破壊的操作は確認モーダル経由(`confirm()` 禁止)。backdrop クローズは mousedown 起点で判定

@@ -1,4 +1,4 @@
-# permreg 開発基準
+# WebReg 開発基準
 
 > 目的: コードの肥大化・管理困難化を防ぐ。**開発前に必ずこのファイルと Notion の
 > 「🎨 UI / デザインルール(全アプリ共通)」(§17〜の全アプリ共通アーキテクチャ含む)を読むこと。**
@@ -69,15 +69,15 @@ src/
 
 ## 6. ビルド・配布(全アプリ共通 §17 準拠)
 
-- `python3 build.py` → dist/ に一括生成。命名は `permreg.bundle.js` / `version.txt` /
-  `permreg.loader.js` / `bookmarklet.txt` / `install-loader.html` / `install.html`
+- `python3 build.py` → dist/ に一括生成。命名は `webreg.bundle.js` / `version.txt` /
+  `webreg.loader.js` / `bookmarklet.txt` / `install-loader.html` / `install.html`
 - 版識別子は `<ver>-<srcSha8>`(buildTime・dirty マーカーを**含めない** — 更新誤検知防止)。
   ベース版数は `VERSION` ファイルで管理(semver)
-- 配布先は SP の `ドキュメント/permreg/`。開発中は `python3 dev/serve.py`(127.0.0.1:18086、
+- 配布先は SP の `ドキュメント/webreg/`。開発中は `python3 dev/serve.py`(127.0.0.1:18086、
   CORS付き、全リクエスト1行ログ)+ アプリ内「設定 → 開発者モード」でローカル参照
 - 起動中の自動更新は updater.js(読込元の version.txt を監視 → 更新モーダル → その場で再読込)。
-  permreg は共通規約 §17 の「トースト案内」ではなく**更新モーダル**を採用(ユーザー指定)。
-  `__permregSource` は bundle 実行**前**に設定する(後だと初回起動で監視が無効になる)
+  webreg は共通規約 §17 の「トースト案内」ではなく**更新モーダル**を採用(ユーザー指定)。
+  `__webregSource` は bundle 実行**前**に設定する(後だと初回起動で監視が無効になる)
 - semver: バグ修正=PATCH / 後方互換の機能追加=MINOR / 破壊的変更=MAJOR(VERSION ファイル)
 
 ## 7. コミット規律
