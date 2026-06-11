@@ -1,46 +1,105 @@
 // Excel エクスポート / インポート(同一フォーマットで往復)。
-//   エクスポート: 組織区分1を複数選択 → 該当行を .xlsx で保存(+「エクスポート情報」シート)
-//   インポート: 同じファイルを取込み、ID一致=更新 / ID空欄=追加 /
-//               エクスポート範囲内でファイルから消えた行=論理削除(システム削除=ON)
-// 形式は xlsx.js(自前の最小実装)で読み書きする。
+// 形式(組織区分1ごとに1シート、横=利用者 / 縦=項目):
+//   1行目: 組織区分1 | <名前>
+//   2行目: 利用者名 | 利用者ごとの列…(右に空列があり、新しい利用者を追記できる)
+//   会社名 / メールアドレス / 権限(ドロップダウン) / 更新内容(ドロップダウン) /
+//   組織区分2のすべて / 以降は組織区分2を1行ずつ並べ、付与する欄に ✓
+// インポートは「更新内容」で動きが決まる:
+//   変更なし=何もしない / 追加=新規登録 / 更新=メール(無ければ利用者名)で突合して更新 /
+//   削除=論理削除(システム削除=ON)
+// 罫線・色・ドロップダウンは xlsx.js の固定スタイル/入力規則で付与する。
 
-const XLSX_SHEET_DATA = '利用者一覧';
-const XLSX_SHEET_META = 'エクスポート情報';
-const XLSX_META_SCOPE = 'エクスポート範囲(組織区分1)';
-const XLSX_SCOPE_SEP = '／';
-// ヘッダー(列順固定)。ID は SP アイテムID(更新・削除の照合キー。新規行は空欄)
-const XLSX_HEADERS = ['ID', '利用者名', '会社名', 'メールアドレス', '変更区分', '権限',
-  LABEL_L1, LABEL_L2 + '(全角カンマ区切り)', LABEL_L2 + 'のすべて(1=すべて)',
-  '特記事項', 'システム削除(1=削除)', '更新日時(参考・取込時は無視)'];
+const XLSX_LBL_L1 = '組織区分1';
+const XLSX_LBL_NAME = '利用者名';
+const XLSX_LBL_COMP = '会社名';
+const XLSX_LBL_MAIL = 'メールアドレス';
+const XLSX_LBL_PERM = '権限';
+const XLSX_LBL_ACTION = '更新内容';
+const XLSX_LBL_L2ALL = LABEL_L2 + 'のすべて';
+const XLSX_ACTIONS = ['変更なし', '追加', '削除', '更新'];
+const XLSX_CHECK = '✓';
+const XLSX_EXTRA_COLS = 3; // 新しい利用者を追記できるよう右側に空けておく列数
+
+const xlsxIsCheck = (s) => /^(✓|✔|○|◯|レ|1|true|はい)$/i.test(String(s == null ? '' : s).trim());
 
 // ---- エクスポート -------------------------------------------------------
 
-function xlsxExportRows(state, l1Titles) {
-  const scope = new Set(l1Titles);
-  const rows = [XLSX_HEADERS.slice()];
-  const users = state.users.filter((u) => scope.has(u.OrgLevel1 || ''));
-  // 画面の既定と同じく組織区分1のマスタ順 → ID順で出す
-  const orderOf = new Map(state.l1.map((x, i) => [x.Title, i]));
-  users.sort((a, b) => (orderOf.get(a.OrgLevel1) ?? 999) - (orderOf.get(b.OrgLevel1) ?? 999) || a.Id - b.Id);
-  for (const u of users) {
-    const l2names = activeL2Of(state, u.OrgLevel1 || '')
-      .filter((m) => u['L2_' + m.Id] === true).map((m) => m.Title);
-    rows.push([
-      u.Id,
-      u.Title || '',
-      u.Company || '',
-      u.Email || '',
-      u.ChangeType || '',
-      u.Permission || '',
-      u.OrgLevel1 || '',
-      l2names.join('，'),
-      u.L2All === true ? 1 : '',
-      u.Notes || '',
-      u.SystemDeleted === true ? 1 : '',
-      u.Modified ? new Date(u.Modified).toLocaleString('ja-JP') : '',
-    ]);
+// Excel のシート名に使えない文字を避けて31文字に収める(重複は連番を付ける)
+function xlsxSheetName(title, used) {
+  let base = String(title).replace(/[\\/?*:[\]]/g, '_').slice(0, 31) || 'シート';
+  let name = base;
+  let n = 2;
+  while (used.has(name)) {
+    const suf = '(' + n + ')';
+    name = base.slice(0, 31 - suf.length) + suf;
+    n++;
   }
-  return rows;
+  used.add(name);
+  return name;
+}
+
+// 1つの組織区分1 → シート定義(行列+スタイル+ドロップダウン)
+function xlsxSheetForL1(state, l1) {
+  const users = state.users
+    .filter((u) => (u.OrgLevel1 || '') === l1.Title && u.SystemDeleted !== true)
+    .sort((a, b) => a.Id - b.Id);
+  const l2list = activeL2Of(state, l1.Title);
+  const cols = users.length + XLSX_EXTRA_COLS;
+  const label = (v) => ({ v, s: XST_LABEL });
+  const head = (v) => ({ v, s: XST_HEAD });
+  const cellRow = (vals, style) => {
+    const row = [];
+    for (let i = 0; i < cols; i++) row.push({ v: vals ? (vals[i] != null ? vals[i] : '') : '', s: style });
+    return row;
+  };
+  const rows = [];
+  rows.push([label(XLSX_LBL_L1), head(l1.Title)]);
+  rows.push([label(XLSX_LBL_NAME)].concat(cellRow(users.map((u) => u.Title || ''), XST_HEAD)));
+  rows.push([label(XLSX_LBL_COMP)].concat(cellRow(users.map((u) => u.Company || ''), XST_BORDER)));
+  rows.push([label(XLSX_LBL_MAIL)].concat(cellRow(users.map((u) => u.Email || ''), XST_BORDER)));
+  rows.push([label(XLSX_LBL_PERM)].concat(cellRow(users.map((u) => u.Permission || ''), XST_CENTER)));
+  rows.push([label(XLSX_LBL_ACTION)].concat(cellRow(users.map(() => '変更なし'), XST_CENTER)));
+  rows.push([label(XLSX_LBL_L2ALL)].concat(cellRow(users.map((u) => u.L2All === true ? XLSX_CHECK : ''), XST_CENTER)));
+  for (const m of l2list) {
+    rows.push([label(m.Title)].concat(cellRow(
+      users.map((u) => (u.L2All === true || u['L2_' + m.Id] === true) ? XLSX_CHECK : ''), XST_CENTER)));
+  }
+  const last = xlsxColName(cols); // B 始まりで cols 列分
+  return {
+    rows,
+    users,
+    colWidths: [24].concat(Array.from({ length: cols }, () => 16)),
+    freeze: 'B3',
+    validations: [
+      { sqref: 'B5:' + last + '5', list: state.choices.permission },
+      { sqref: 'B6:' + last + '6', list: XLSX_ACTIONS },
+    ],
+  };
+}
+
+// エクスポート本体(blob を返す — テストでも使う)
+function buildExportXlsx(state, l1Titles) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
+    '-' + pad(now.getHours()) + pad(now.getMinutes());
+  const used = new Set();
+  const sheets = [];
+  let count = 0;
+  for (const t of l1Titles) {
+    const l1 = state.l1.find((x) => x.Title === t);
+    if (!l1) continue;
+    const sh = xlsxSheetForL1(state, l1);
+    count += sh.users.length;
+    sheets.push({
+      name: xlsxSheetName(t, used),
+      rows: sh.rows,
+      colWidths: sh.colWidths,
+      freeze: sh.freeze,
+      validations: sh.validations,
+    });
+  }
+  return { blob: xlsxBuild(sheets), filename: LIST_USERS + '_' + stamp + '.xlsx', count };
 }
 
 function xlsxDownload(blob, filename) {
@@ -57,6 +116,7 @@ function openExportModal(state) {
   return new Promise((resolve) => {
     const counts = new Map();
     for (const u of state.users) {
+      if (u.SystemDeleted === true) continue;
       const k = u.OrgLevel1 || '';
       counts.set(k, (counts.get(k) || 0) + 1);
     }
@@ -64,11 +124,12 @@ function openExportModal(state) {
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelエクスポート">
           <h4>Excelエクスポート</h4>
-          <span class="pr-note">出力する${esc(LABEL_L1)}を選択してください(複数可)。同じファイルを編集して
-            「Excelインポート」で取り込むと、追加・更新・削除(論理削除)を反映できます。</span>
+          <span class="pr-note">出力する${esc(LABEL_L1)}を選択してください(複数可。1つにつき1シート)。
+            ファイルを編集して「Excel取込」すると、各列の「更新内容」に応じて
+            追加・更新・削除(論理削除)を反映できます。システム削除済みの行は出力されません。</span>
           <div class="pr-field">
-            <label><label class="pr-check" style="display:inline-flex">
-              <input type="checkbox" data-xall checked>すべて選択</label></label>
+            <label class="pr-check" style="display:inline-flex">
+              <input type="checkbox" data-xall checked>すべて選択</label>
             <div class="pr-checks pr-checks--perm">
               ${state.l1.map((x) => `
                 <label class="pr-check"><input type="checkbox" data-xl1 value="${esc(x.Title)}" checked>
@@ -87,9 +148,8 @@ function openExportModal(state) {
       back.remove();
       resolve(val);
     };
-    const picked = () => [...back.querySelectorAll('input[data-xl1]:checked')].map((x) => x.value);
     const ok = () => {
-      const titles = picked();
+      const titles = [...back.querySelectorAll('input[data-xl1]:checked')].map((x) => x.value);
       if (!titles.length) {
         toast('warn', LABEL_L1 + 'を1件以上選択してください');
         return;
@@ -120,24 +180,6 @@ function openExportModal(state) {
   });
 }
 
-// エクスポート本体(blob を返す — テストでも使う)
-function buildExportXlsx(state, l1Titles) {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
-    '-' + pad(now.getHours()) + pad(now.getMinutes());
-  const blob = xlsxBuild([
-    { name: XLSX_SHEET_DATA, rows: xlsxExportRows(state, l1Titles) },
-    { name: XLSX_SHEET_META, rows: [
-      [XLSX_META_SCOPE, l1Titles.join(XLSX_SCOPE_SEP)],
-      ['エクスポート日時', now.toLocaleString('ja-JP')],
-      ['リスト', LIST_USERS],
-      ['形式バージョン', 1],
-    ] },
-  ]);
-  return { blob, filename: LIST_USERS + '_' + stamp + '.xlsx' };
-}
-
 // ---- インポート ---------------------------------------------------------
 
 function pickXlsxFile() {
@@ -155,93 +197,108 @@ function pickXlsxFile() {
   });
 }
 
-const xlsxCell = (row, i) => String((row || [])[i] == null ? '' : row[i]).trim();
-const xlsxFlag = (s) => s === '1' || s === '1.0' || /^true$/i.test(s);
-
-// 取込計画: シート → {scope, adds, updates, deletes, missingL1, missingL2, skipped}
+// 取込計画: シート群 → {entries, adds, updates, deletes, notFound, missingL1, missingL2, skipped}
 function buildXlsxImportPlan(state, sheets) {
-  const data = sheets.find((sh) => sh.name === XLSX_SHEET_DATA) ||
-    sheets.find((sh) => (sh.rows[0] || [])[0] === 'ID');
-  if (!data || !data.rows.length) throw new Error('シート「' + XLSX_SHEET_DATA + '」が見つかりません');
-  const header = data.rows[0].map((h) => String(h || '').trim());
-  // 列順は固定だが、念のため先頭2列だけ検証する
-  if (header[0] !== 'ID' || header[1] !== XLSX_HEADERS[1]) {
-    throw new Error('ヘッダーが想定と異なります(このツールのエクスポート形式のみ取込可能)');
-  }
-  const meta = sheets.find((sh) => sh.name === XLSX_SHEET_META);
-  let scope = [];
-  if (meta) {
-    const row = meta.rows.find((r) => String((r || [])[0]) === XLSX_META_SCOPE);
-    if (row) scope = String(row[1] || '').split(XLSX_SCOPE_SEP).map((s) => s.trim()).filter(Boolean);
-  }
-
   const entries = [];
-  let skipped = 0;
-  for (const r of data.rows.slice(1)) {
-    const name = xlsxCell(r, 1);
-    const idRaw = xlsxCell(r, 0).replace(/\.0$/, '');
-    if (!name) { if (idRaw || r.some((v) => String(v || '').trim() !== '')) skipped++; continue; }
-    entries.push({
-      id: /^\d+$/.test(idRaw) ? +idRaw : null,
-      name,
-      company: xlsxCell(r, 2),
-      email: xlsxCell(r, 3),
-      changeType: xlsxCell(r, 4),
-      permission: xlsxCell(r, 5),
-      org1: xlsxCell(r, 6),
-      org2names: xlsxCell(r, 7).split(/[，、,]/).map((x) => x.trim()).filter(Boolean),
-      l2all: xlsxFlag(xlsxCell(r, 8)),
-      notes: xlsxCell(r, 9),
-      sysdel: xlsxFlag(xlsxCell(r, 10)),
-    });
-  }
-  if (!entries.length) throw new Error('取込対象の行がありません');
-  // ファイルに現れた組織区分1も削除判定の範囲に含める(メタシートが消された場合の保険)
-  const scopeSet = new Set(scope.concat(entries.map((e) => e.org1).filter(Boolean)));
-
-  // 未登録マスタの洗い出し(CSV取込と同じ流儀で自動登録できるように返す)
+  const missingL1 = [];
+  const missingL2 = [];
   const l1Titles = new Set(state.l1.map((x) => x.Title));
   const l2Keys = new Set(state.l2.filter((x) => x.Level1).map((x) => {
     const l1 = state.l1.find((y) => y.Id === x.Level1.Id);
     return (l1 ? l1.Title : '') + ' ' + x.Title;
   }));
-  const missingL1 = [];
-  const missingL2 = [];
-  for (const e of entries) {
-    if (e.org1 && !l1Titles.has(e.org1) && !missingL1.includes(e.org1)) missingL1.push(e.org1);
-    for (const nm of e.org2names) {
-      const key = e.org1 + ' ' + nm;
+  let found = 0;
+  for (const sh of sheets) {
+    const rows = sh.rows;
+    const cellAt = (r, c) => String((rows[r] && rows[r][c] != null) ? rows[r][c] : '').trim();
+    if (cellAt(0, 0) !== XLSX_LBL_L1) continue; // 形式外のシートは無視
+    const l1Title = cellAt(0, 1);
+    if (!l1Title) continue;
+    found++;
+    const findRow = (lbl) => rows.findIndex((r) => String((r || [])[0] || '').trim() === lbl);
+    const rName = findRow(XLSX_LBL_NAME);
+    const rComp = findRow(XLSX_LBL_COMP);
+    const rMail = findRow(XLSX_LBL_MAIL);
+    const rPerm = findRow(XLSX_LBL_PERM);
+    const rAct = findRow(XLSX_LBL_ACTION);
+    const rAll = findRow(XLSX_LBL_L2ALL);
+    if (rName < 0 || rPerm < 0 || rAct < 0) {
+      throw new Error('シート「' + sh.name + '」の形式が想定と異なります(利用者名/権限/更新内容の行が必要)');
+    }
+    // 組織区分2の行(「すべて」行より下の、A列に名称がある行すべて)
+    const l2rows = [];
+    for (let r = (rAll >= 0 ? rAll : rAct) + 1; r < rows.length; r++) {
+      const nm = String((rows[r] || [])[0] || '').trim();
+      if (nm) l2rows.push({ r, name: nm });
+    }
+    if (l1Title && !l1Titles.has(l1Title) && !missingL1.includes(l1Title)) missingL1.push(l1Title);
+    for (const x of l2rows) {
+      const key = l1Title + ' ' + x.name;
       if (!l2Keys.has(key)) {
         l2Keys.add(key);
-        missingL2.push({ l1: e.org1, name: nm });
+        missingL2.push({ l1: l1Title, name: x.name });
       }
     }
+    const width = Math.max(0, ...rows.map((r) => (r || []).length));
+    for (let c = 1; c < width; c++) {
+      const name = cellAt(rName, c);
+      if (!name) continue;
+      entries.push({
+        l1: l1Title,
+        name,
+        company: rComp >= 0 ? cellAt(rComp, c) : '',
+        email: rMail >= 0 ? cellAt(rMail, c) : '',
+        permission: cellAt(rPerm, c),
+        action: cellAt(rAct, c) || '変更なし',
+        l2all: rAll >= 0 && xlsxIsCheck(cellAt(rAll, c)),
+        org2names: l2rows.filter((x) => xlsxIsCheck(cellAt(x.r, c))).map((x) => x.name),
+      });
+    }
   }
+  if (!found) throw new Error('このツールのエクスポート形式のシート(A1が「' + XLSX_LBL_L1 + '」)が見つかりません');
+  if (!entries.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
 
-  const byId = new Map(state.users.map((u) => [u.Id, u]));
-  const fileIds = new Set(entries.map((e) => e.id).filter((x) => x != null));
-  const adds = entries.filter((e) => e.id == null || !byId.has(e.id));
-  const updates = entries.filter((e) => e.id != null && byId.has(e.id));
-  // エクスポート範囲内でファイルから消えた行 → 論理削除(削除済みの行は対象外)
-  const deletes = state.users.filter((u) =>
-    scopeSet.has(u.OrgLevel1 || '') && u.SystemDeleted !== true && !fileIds.has(u.Id));
-  return { entries, scope: [...scopeSet], adds, updates, deletes, missingL1, missingL2, skipped };
+  // 「更新内容」で振り分け。更新/削除はメールアドレス(無ければ利用者名)で既存行と突合
+  const byEmail = new Map(state.users.filter((u) => u.Email).map((u) => [u.Email.toLowerCase(), u]));
+  const byName = new Map(state.users.map((u) => [u.Title, u]));
+  const adds = [];
+  const updates = [];
+  const deletes = [];
+  const notFound = [];
+  let skipped = 0;
+  for (const e of entries) {
+    if (e.action === '追加') {
+      adds.push(e);
+    } else if (e.action === '更新' || e.action === '削除') {
+      const u = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
+      if (!u) notFound.push(e);
+      else if (e.action === '削除') {
+        if (u.SystemDeleted === true) skipped++;
+        else deletes.push({ e, u });
+      } else updates.push({ e, u });
+    } else {
+      skipped++; // 変更なし(および想定外の値)
+    }
+  }
+  return { entries, adds, updates, deletes, notFound, missingL1, missingL2, skipped };
 }
 
-// 取込行 → リストアイテムのボディ(既存行は前回チェックのクリアも含める)
+// 取込列 → リストアイテムのボディ。更新時は前回チェックのクリアも含める。
+// 「更新内容」は取込の動作指定であり、リストの変更区分には書かない(新規追加のみ既定値を入れる)
 function buildXlsxBody(state, e, existing) {
   const body = {
     Title: e.name,
     Company: e.company,
     Email: e.email,
-    ChangeType: e.changeType || '変更なし',
     Permission: e.permission,
-    OrgLevel1: e.org1,
-    Notes: e.notes,
-    SystemDeleted: e.sysdel,
+    OrgLevel1: e.l1,
     L2All: e.l2all,
   };
-  const l1 = state.l1.find((x) => x.Title === e.org1);
+  if (!existing) {
+    body.ChangeType = state.choices.changeType.includes('新規') ? '新規' : state.choices.changeType[0];
+    body.SystemDeleted = false;
+  }
+  const l1 = state.l1.find((x) => x.Title === e.l1);
   if (l1) {
     for (const nm of e.org2names) {
       const m = state.l2.find((x) => x.Level1 && x.Level1.Id === l1.Id && x.Title === nm);
@@ -256,12 +313,11 @@ function buildXlsxBody(state, e, existing) {
   return body;
 }
 
-// 既存行と取込行の差分があるときだけ更新する(Modified の無駄な更新を避ける)
+// 既存行と取込列に差分があるときだけ更新する(Modified の無駄な更新を避ける)
 function xlsxRowChanged(state, e, u) {
   const body = buildXlsxBody(state, e, u);
   for (const [k, v] of Object.entries(body)) {
-    const cur = k.startsWith('L2_') || k === 'L2All' || k === 'SystemDeleted'
-      ? u[k] === true : (u[k] || '');
+    const cur = (k.startsWith('L2_') || k === 'L2All') ? u[k] === true : (u[k] || '');
     const next = typeof v === 'boolean' ? v : (v || '');
     if (cur !== next) return true;
   }
@@ -279,13 +335,15 @@ function openXlsxConfirmModal(plan, changedCount) {
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
           <h4>Excelインポートの確認</h4>
           <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changedCount}件</code>
-            (変更なし ${plan.updates.length - changedCount}件はスキップ) /
+            (差分なし ${plan.updates.length - changedCount}件はスキップ) /
             論理削除 <code>${plan.deletes.length}件</code>
-            ${plan.skipped ? ' / 利用者名が空の行 ' + plan.skipped + '件は無視' : ''}</div>
+            ${plan.skipped ? ' / 変更なし ' + plan.skipped + '件' : ''}</div>
           ${plan.adds.length ? `<span class="pr-note">追加: ${names(plan.adds, (x) => x.name)}</span>` : ''}
-          ${plan.deletes.length ? `<span class="pr-note">論理削除(ファイルに無い行。システム削除=ONになります):
-            ${names(plan.deletes, (x) => x.Title)}</span>` : ''}
-          <span class="pr-note">削除判定の範囲(${esc(LABEL_L1)}): ${esc(plan.scope.join(' / '))}</span>
+          ${plan.deletes.length ? `<span class="pr-note">論理削除(システム削除=ONになります):
+            ${names(plan.deletes, (x) => x.u.Title)}</span>` : ''}
+          ${plan.notFound.length ? `<span class="pr-note" style="color:var(--danger)">
+            ⚠ 更新/削除の対象が見つからない列 ${plan.notFound.length}件(スキップされます):
+            ${names(plan.notFound, (x) => x.name)}</span>` : ''}
           ${missing.length ? `
           <div class="pr-field">
             <label>マスタ未登録の組織(OK でマスタへ自動登録してから取り込みます)</label>

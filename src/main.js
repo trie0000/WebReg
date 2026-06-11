@@ -321,10 +321,9 @@
     }
     const titles = await openExportModal(state);
     if (!titles) return;
-    const { blob, filename } = buildExportXlsx(state, titles);
-    const count = state.users.filter((u) => titles.includes(u.OrgLevel1 || '')).length;
+    const { blob, filename, count } = buildExportXlsx(state, titles);
     xlsxDownload(blob, filename);
-    toast('ok', filename + ' を出力しました(' + count + '件)');
+    toast('ok', filename + ' を出力しました(' + titles.length + 'シート / ' + count + '件)');
   }
 
   // Excel インポート(エクスポートと同じ形式。testBuf を渡すとファイル選択をスキップ — テスト用)
@@ -342,10 +341,11 @@
       toast('err', 'Excelファイルの解析に失敗しました — ' + e.message);
       return;
     }
-    const byId = new Map(state.users.map((u) => [u.Id, u]));
-    const changed = plan.updates.filter((e) => xlsxRowChanged(state, e, byId.get(e.id)));
+    const changed = plan.updates.filter(({ e, u }) => xlsxRowChanged(state, e, u));
     if (!plan.adds.length && !changed.length && !plan.deletes.length) {
-      toast('ok', '変更はありません(リストとファイルの内容は一致しています)');
+      toast(plan.notFound.length ? 'warn' : 'ok',
+        '取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、差分がありません)' +
+        (plan.notFound.length ? ' / 突合できない列 ' + plan.notFound.length + '件' : ''));
       return;
     }
     const ok = await openXlsxConfirmModal(plan, changed.length);
@@ -371,14 +371,7 @@
         const sres = await syncMastersToUserList(state, setStatus);
         if (sres.org2Mode) state.org2Mode = sres.org2Mode;
       }
-      // 2) 選択肢に無い 変更区分/権限 の値は追加しておく(取込エラー防止)
-      const needCt = [...new Set(plan.entries.map((e) => e.changeType).filter(Boolean))]
-        .filter((v) => !state.choices.changeType.includes(v));
-      if (needCt.length) {
-        const merged = state.choices.changeType.concat(needCt);
-        await setChoices(LIST_USERS, 'ChangeType', '変更区分', merged, true);
-        state.choices.changeType = merged;
-      }
+      // 2) 選択肢に無い権限の値は追加しておく(取込エラー防止)
       const needPm = [...new Set(plan.entries.map((e) => e.permission).filter(Boolean))]
         .filter((v) => !state.choices.permission.includes(v));
       if (needPm.length) {
@@ -386,7 +379,7 @@
         await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
         state.choices.permission = merged;
       }
-      // 3) 追加 / 更新(差分のある行のみ) / 論理削除
+      // 3) 追加 / 更新(差分のある列のみ) / 論理削除
       const total = plan.adds.length + changed.length + plan.deletes.length;
       let done = 0;
       const rowErrors = [];
@@ -397,14 +390,13 @@
           await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
         } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
       }
-      for (const e of changed) {
+      for (const { e, u } of changed) {
         step();
         try {
-          const u = byId.get(e.id);
-          await updateItem(LIST_USERS, e.id, withOrg2Text(buildXlsxBody(state, e, u), u));
+          await updateItem(LIST_USERS, u.Id, withOrg2Text(buildXlsxBody(state, e, u), u));
         } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
       }
-      for (const u of plan.deletes) {
+      for (const { u } of plan.deletes) {
         step();
         try {
           await updateItem(LIST_USERS, u.Id, { SystemDeleted: true });
@@ -420,6 +412,10 @@
       }
       toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
         '件 / 論理削除 ' + plan.deletes.length + '件');
+      if (plan.notFound.length) {
+        toast('warn', '更新/削除の対象が見つからずスキップした列 ' + plan.notFound.length + '件: ' +
+          plan.notFound.slice(0, 5).map((x) => x.name).join('、') + (plan.notFound.length > 5 ? ' ほか' : ''));
+      }
       if (rowErrors.length) {
         toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
           rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +

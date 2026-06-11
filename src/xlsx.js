@@ -40,26 +40,94 @@ function xlsxColName(i) {
 
 // ---- 書き出し -----------------------------------------------------------
 
-// sheets: [{name, rows: [[セル値, ...], ...]}] → xlsx の Blob。
-// 文字列は inlineStr、有限数値は数値セルで書く(それ以外は文字列化)
+// 固定スタイル(styles.xml に焼き込み)。セルを {v: 値, s: XST_*} で渡すと適用される
+const XST_BORDER = 1; // 罫線のみ
+const XST_LABEL = 2;  // 項目列(薄い色 + 太字 + 罫線)
+const XST_HEAD = 3;   // 見出し(アクセント色 + 白太字 + 中央 + 罫線)
+const XST_CENTER = 4; // 罫線 + 中央揃え(チェック欄)
+
+const XLSX_STYLES_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+  '<fonts count="3">' +
+  '<font><sz val="11"/><name val="Yu Gothic"/></font>' +
+  '<font><b/><sz val="11"/><name val="Yu Gothic"/></font>' +
+  '<font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Yu Gothic"/></font>' +
+  '</fonts>' +
+  '<fills count="4">' +
+  '<fill><patternFill patternType="none"/></fill>' +
+  '<fill><patternFill patternType="gray125"/></fill>' +
+  '<fill><patternFill patternType="solid"><fgColor rgb="FF7A8A78"/><bgColor indexed="64"/></patternFill></fill>' +
+  '<fill><patternFill patternType="solid"><fgColor rgb="FFEDF0EA"/><bgColor indexed="64"/></patternFill></fill>' +
+  '</fills>' +
+  '<borders count="2">' +
+  '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+  '<border>' +
+  '<left style="thin"><color rgb="FF9AA096"/></left>' +
+  '<right style="thin"><color rgb="FF9AA096"/></right>' +
+  '<top style="thin"><color rgb="FF9AA096"/></top>' +
+  '<bottom style="thin"><color rgb="FF9AA096"/></bottom>' +
+  '<diagonal/></border>' +
+  '</borders>' +
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+  '<cellXfs count="5">' +
+  '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+  '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>' +
+  '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
+  '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"' +
+  ' applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+  '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"' +
+  ' applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+  '</cellXfs>' +
+  '<cellStyles count="1"><cellStyle name="標準" xfId="0" builtinId="0"/></cellStyles>' +
+  '</styleSheet>';
+
+// sheets: [{name, rows, colWidths?, freeze?, validations?}] → xlsx の Blob。
+//   rows のセル: 文字列/数値、または {v: 値, s: XST_*}(空値でもスタイルがあれば罫線が付く)
+//   colWidths: 列幅の配列(文字数単位) / freeze: 'B3' のように固定開始セル
+//   validations: [{sqref: 'B5:H5', list: ['a','b']}] — ドロップダウン入力規則
 function xlsxBuild(sheets) {
   const enc = new TextEncoder();
-  const sheetXml = (rows) => {
+  const sheetXml = (sh) => {
+    const rows = sh.rows;
     const rowsXml = rows.map((cells, ri) => {
-      const cellsXml = cells.map((v, ci) => {
+      const cellsXml = cells.map((raw, ci) => {
+        const isObj = raw != null && typeof raw === 'object';
+        const v = isObj ? raw.v : raw;
+        const st = isObj && raw.s ? ' s="' + raw.s + '"' : '';
         const ref = xlsxColName(ci) + (ri + 1);
         if (typeof v === 'number' && isFinite(v)) {
-          return '<c r="' + ref + '"><v>' + v + '</v></c>';
+          return '<c r="' + ref + '"' + st + '><v>' + v + '</v></c>';
         }
         const s = String(v == null ? '' : v);
-        if (s === '') return '';
-        return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xlsxXmlEsc(s) + '</t></is></c>';
+        if (s === '') return st ? '<c r="' + ref + '"' + st + '/>' : '';
+        return '<c r="' + ref + '"' + st + ' t="inlineStr"><is><t xml:space="preserve">' + xlsxXmlEsc(s) + '</t></is></c>';
       }).join('');
       return '<row r="' + (ri + 1) + '">' + cellsXml + '</row>';
     }).join('');
+    let views = '';
+    if (sh.freeze) {
+      const x = xlsxColIndex(sh.freeze);
+      const y = parseInt(sh.freeze.replace(/^[A-Z]+/, ''), 10) - 1;
+      views = '<sheetViews><sheetView workbookViewId="0">' +
+        '<pane xSplit="' + x + '" ySplit="' + y + '" topLeftCell="' + sh.freeze +
+        '" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>';
+    }
+    const cols = (sh.colWidths && sh.colWidths.length)
+      ? '<cols>' + sh.colWidths.map((w, i) => w
+        ? '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>' : '')
+        .join('') + '</cols>'
+      : '';
+    const vals = (sh.validations && sh.validations.length)
+      ? '<dataValidations count="' + sh.validations.length + '">' +
+        sh.validations.map((dv) => '<dataValidation type="list" allowBlank="1" showInputMessage="1"' +
+          ' showErrorMessage="1" sqref="' + dv.sqref + '"><formula1>' +
+          xlsxXmlEsc('"' + dv.list.join(',') + '"') + '</formula1></dataValidation>').join('') +
+        '</dataValidations>'
+      : '';
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-      '<sheetData>' + rowsXml + '</sheetData></worksheet>';
+      views + cols + '<sheetData>' + rowsXml + '</sheetData>' + vals + '</worksheet>';
   };
 
   const files = [];
@@ -69,6 +137,7 @@ function xlsxBuild(sheets) {
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
     '<Default Extension="xml" ContentType="application/xml"/>' +
     '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
     sheets.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) +
       '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
     '</Types>']);
@@ -89,8 +158,10 @@ function xlsxBuild(sheets) {
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
     sheets.map((_, i) => '<Relationship Id="rId' + (i + 1) +
       '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+    '<Relationship Id="rIdSty" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
     '</Relationships>']);
-  sheets.forEach((sh, i) => files.push(['xl/worksheets/sheet' + (i + 1) + '.xml', sheetXml(sh.rows)]));
+  files.push(['xl/styles.xml', XLSX_STYLES_XML]);
+  sheets.forEach((sh, i) => files.push(['xl/worksheets/sheet' + (i + 1) + '.xml', sheetXml(sh)]));
 
   // 無圧縮 ZIP を手組みする(ローカルヘッダ + セントラルディレクトリ)
   const parts = [];
