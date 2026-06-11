@@ -122,14 +122,11 @@
     return j.Id;
   }
 
+  // 存在しない列への getbyinternalnameortitle は 404 ではなく
+  // 400 (System.ArgumentException) を返すため、$filter で判定する
   async function fieldExists(title, internal) {
-    try {
-      await spGet(lt(title) + "/fields/getbyinternalnameortitle('" + internal + "')?$select=Id");
-      return true;
-    } catch (e) {
-      if (e.status === 404) return false;
-      throw e;
-    }
+    const j = await spGet(lt(title) + "/fields?$select=Id&$filter=InternalName eq '" + internal + "'");
+    return !!(j.value && j.value.length);
   }
 
   // 内部名を英語に固定するため、いったん英語名で作成してから表示名だけ日本語に変える

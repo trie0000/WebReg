@@ -19,6 +19,7 @@
 ## 規約
 
 - SharePoint REST は `odata=nometadata` で統一(`__metadata` 不要のため)
+- ⚠ 存在しない列への `fields/getbyinternalnameortitle('X')` は **404 ではなく 400 (System.ArgumentException「列 'X' が存在しません」)** を返す(実機のみ。mock では気付けない)。列の存在判定は `fields?$filter=InternalName eq 'X'` を使う
 - リスト列の内部名は英語(`SortOrder` 等)で作成し、表示名だけ日本語に変更する方式
 - UI 文言は日本語
 

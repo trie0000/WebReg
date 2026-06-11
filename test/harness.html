@@ -55,7 +55,13 @@
     if (rest.startsWith('/fields/getbyinternalnameortitle(')) {
       const f = rest.match(/\('([^']*)'\)/)[1];
       if (method === 'POST' && xm === 'MERGE') return json(204, null); // 表示名変更
-      return list.fields.has(f) ? json(200, { Id: newGuid() }) : json(404, {});
+      // 実機同様: 存在しない列は 404 ではなく 400 ArgumentException
+      return list.fields.has(f) ? json(200, { Id: newGuid() })
+        : json(400, { 'odata.error': { code: '-2147024809, System.ArgumentException', message: { value: "列 '" + f + "' が存在しません。" } } });
+    }
+    if (rest.startsWith('/fields?') && rest.includes('$filter=InternalName eq')) {
+      const f = rest.match(/InternalName eq '([^']*)'/)[1];
+      return json(200, { value: list.fields.has(f) ? [{ Id: newGuid() }] : [] });
     }
     if (rest === '/fields' && method === 'POST') {
       list.fields.add(body.Title);
