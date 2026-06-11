@@ -55,6 +55,13 @@
     state.users = ru.value || [];
     if (state.usersReady) {
       try {
+        state.org2Mode = ((await spGet(lt(LIST_USERS) +
+          "/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString === 'Text')
+          ? 'text' : 'calc';
+      } catch {
+        state.org2Mode = 'calc';
+      }
+      try {
         const [ct, pm] = await Promise.all([
           spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
           spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
@@ -133,6 +140,13 @@
   }
 
   // ---------------------------------------------------------------- user flows
+  // テキスト方式(集計式が上限超過の大規模データ)では、書込時に組織区分2の表示値も付与する
+  function withOrg2Text(body, baseItem) {
+    if (state.org2Mode !== 'text') return body;
+    body.OrgLevel2 = userOrg2Text(state, Object.assign({}, baseItem || {}, body));
+    return body;
+  }
+
   // フォームでチェックした組織区分2の列が未反映なら、先にマスタを反映する(冪等)
   async function ensureCheckedL2Cols(body) {
     const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
@@ -149,7 +163,7 @@
   async function userAddFlow() {
     const result = await openUserForm(state, async (body) => {
       await ensureCheckedL2Cols(body);
-      await addItem(LIST_USERS, body);
+      await addItem(LIST_USERS, withOrg2Text(body));
       return body.Title;
     });
     if (!result) return;
@@ -162,7 +176,7 @@
   async function userEditFlow(item) {
     const result = await openUserForm(state, async (body) => {
       await ensureCheckedL2Cols(body);
-      await updateItem(LIST_USERS, item.Id, body);
+      await updateItem(LIST_USERS, item.Id, withOrg2Text(body, item));
       return body.Title;
     }, item);
     if (!result) return;
@@ -233,6 +247,8 @@
       // 2) 列・選択肢・集計式を反映(部分的な失敗は警告にして取込を続行)
       setStatus('マスタをリストへ反映中…');
       const sres = await syncMastersToUserList(state, setStatus);
+      if (sres.org2Migrated) toast('warn', sres.org2Migrated);
+      if (sres.org2Mode) state.org2Mode = sres.org2Mode;
       if (sres.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
       if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
       if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
@@ -262,10 +278,10 @@
             for (const k of Object.keys(exist)) {
               if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
             }
-            await updateItem(LIST_USERS, exist.Id, body);
+            await updateItem(LIST_USERS, exist.Id, withOrg2Text(body, exist));
             updated++;
           } else {
-            await addItem(LIST_USERS, body);
+            await addItem(LIST_USERS, withOrg2Text(body));
             added++;
           }
         } catch (e) {
@@ -496,6 +512,8 @@
           LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
         if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
+        if (s.org2Migrated) toast('warn', s.org2Migrated);
+        if (s.org2Mode) state.org2Mode = s.org2Mode;
         if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
         if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
       });

@@ -149,20 +149,59 @@ async function syncMastersToUserList(state, log) {
       '",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
   }
   const formula = terms.length ? '=' + terms.join('&') : '=""';
-  // 列は必ず存在させる: まず空の式で作成し、その後に本式へ更新する。
-  // 式の更新に失敗しても列自体は残り、エラーは警告として報告される
+  // 集計列の方式: 通常は計算列(式)。式が SP の長さ上限(約8千文字)を超える規模では
+  // ツールが値を書き込むテキスト列へ自動移行する(SPフォームからは非表示)
+  let org2Type = '';
   try {
-    if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-      const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
-        " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
-        "<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
-      await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
-      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
+    org2Type = (await spGet(lt(LIST_USERS) +
+      "/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString || '';
+  } catch { /* 未作成 */ }
+
+  if (org2Type === 'Text') {
+    summary.org2Mode = 'text'; // 既にテキスト方式へ移行済み
+  } else {
+    try {
+      if (!org2Type) {
+        const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
+          " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
+          "<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
+        await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+        await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
+      }
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+      summary.org2Mode = 'calc';
+    } catch (e) {
+      // 式が上限超過など → テキスト列へ移行
+      log(LABEL_L2 + '列をテキスト方式へ移行中…');
+      try {
+        await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+        await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
+        // SP標準フォームには出さない(値はツールが書き込む)
+        try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { /* ignore */ }
+        try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { /* ignore */ }
+        summary.org2Mode = 'text';
+        summary.org2Migrated = '集計式が上限を超えるため(' + formula.length + '文字)、' +
+          LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
+      } catch (e2) {
+        summary.formulaWarn = e2.message + '(式の長さ ' + formula.length + '文字)';
+      }
     }
-    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
-  } catch (e) {
-    // 組織数が多く式が上限を超える場合など。集計列が古いままでも反映自体は続行する
-    summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
+  }
+
+  // テキスト方式: 全行の表示値を埋め直す(値が変わる行のみ更新)
+  if (summary.org2Mode === 'text') {
+    log(LABEL_L2 + 'の表示値を更新中…');
+    try {
+      const items = await spGet(lt(LIST_USERS) + '/items?$select=*&$top=4999');
+      for (const it of (items.value || [])) {
+        const txt = userOrg2Text(state, it);
+        if ((it.OrgLevel2 || '') !== txt) {
+          await spMerge(lt(LIST_USERS) + '/items(' + it.Id + ')', { OrgLevel2: txt });
+        }
+      }
+    } catch (e) {
+      summary.formulaWarn = LABEL_L2 + 'の表示値更新: ' + e.message;
+    }
   }
 
   await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));

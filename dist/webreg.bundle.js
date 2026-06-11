@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-ab197940" !== 'undefined' ? "0.1.0-ab197940" : 'dev';
+const BUILD = typeof "0.1.0-f448be9e" !== 'undefined' ? "0.1.0-f448be9e" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -350,8 +350,16 @@ terms.push('IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) +
 '",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
 }
 const formula = terms.length ? '=' + terms.join('&') : '=""';
+let org2Type = '';
 try {
-if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
+org2Type = (await spGet(lt(LIST_USERS) +
+"/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString || '';
+} catch { }
+if (org2Type === 'Text') {
+summary.org2Mode = 'text';
+} else {
+try {
+if (!org2Type) {
 const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
 " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
 "<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
@@ -359,8 +367,35 @@ await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { Schema
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
 }
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
+summary.org2Mode = 'calc';
 } catch (e) {
-summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
+log(LABEL_L2 + '列をテキスト方式へ移行中…');
+try {
+await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
+await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
+try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { }
+try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { }
+summary.org2Mode = 'text';
+summary.org2Migrated = '集計式が上限を超えるため(' + formula.length + '文字)、' +
+LABEL_L2 + '列をツールが書き込むテキスト列に切替えました';
+} catch (e2) {
+summary.formulaWarn = e2.message + '(式の長さ ' + formula.length + '文字)';
+}
+}
+}
+if (summary.org2Mode === 'text') {
+log(LABEL_L2 + 'の表示値を更新中…');
+try {
+const items = await spGet(lt(LIST_USERS) + '/items?$select=*&$top=4999');
+for (const it of (items.value || [])) {
+const txt = userOrg2Text(state, it);
+if ((it.OrgLevel2 || '') !== txt) {
+await spMerge(lt(LIST_USERS) + '/items(' + it.Id + ')', { OrgLevel2: txt });
+}
+}
+} catch (e) {
+summary.formulaWarn = LABEL_L2 + 'の表示値更新: ' + e.message;
+}
 }
 await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
 const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
@@ -1984,6 +2019,13 @@ state.l2 = r2.value || [];
 state.users = ru.value || [];
 if (state.usersReady) {
 try {
+state.org2Mode = ((await spGet(lt(LIST_USERS) +
+"/fields/getbyinternalnameortitle('OrgLevel2')?$select=TypeAsString")).TypeAsString === 'Text')
+? 'text' : 'calc';
+} catch {
+state.org2Mode = 'calc';
+}
+try {
 const [ct, pm] = await Promise.all([
 spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
 spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
@@ -2052,6 +2094,11 @@ app.style.opacity = '';
 app.style.pointerEvents = '';
 }
 }
+function withOrg2Text(body, baseItem) {
+if (state.org2Mode !== 'text') return body;
+body.OrgLevel2 = userOrg2Text(state, Object.assign({}, baseItem || {}, body));
+return body;
+}
 async function ensureCheckedL2Cols(body) {
 const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
 if (!l2Keys.length) return;
@@ -2066,7 +2113,7 @@ await syncMastersToUserList(state, setStatus);
 async function userAddFlow() {
 const result = await openUserForm(state, async (body) => {
 await ensureCheckedL2Cols(body);
-await addItem(LIST_USERS, body);
+await addItem(LIST_USERS, withOrg2Text(body));
 return body.Title;
 });
 if (!result) return;
@@ -2078,7 +2125,7 @@ toast('ok', '「' + result + '」を登録しました');
 async function userEditFlow(item) {
 const result = await openUserForm(state, async (body) => {
 await ensureCheckedL2Cols(body);
-await updateItem(LIST_USERS, item.Id, body);
+await updateItem(LIST_USERS, item.Id, withOrg2Text(body, item));
 return body.Title;
 }, item);
 if (!result) return;
@@ -2144,6 +2191,8 @@ await loadAll();
 }
 setStatus('マスタをリストへ反映中…');
 const sres = await syncMastersToUserList(state, setStatus);
+if (sres.org2Migrated) toast('warn', sres.org2Migrated);
+if (sres.org2Mode) state.org2Mode = sres.org2Mode;
 if (sres.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
 if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
 if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
@@ -2170,10 +2219,10 @@ if (exist) {
 for (const k of Object.keys(exist)) {
 if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
 }
-await updateItem(LIST_USERS, exist.Id, body);
+await updateItem(LIST_USERS, exist.Id, withOrg2Text(body, exist));
 updated++;
 } else {
-await addItem(LIST_USERS, body);
+await addItem(LIST_USERS, withOrg2Text(body));
 added++;
 }
 } catch (e) {
@@ -2385,6 +2434,8 @@ toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
 if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
+if (s.org2Migrated) toast('warn', s.org2Migrated);
+if (s.org2Mode) state.org2Mode = s.org2Mode;
 if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
 if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
 });
