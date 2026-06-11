@@ -9,6 +9,7 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
+const LIST_USERS = '利用者一覧';
 
 // build.py がビルド時に __BUILD__ を版識別子文字列に置換する(未置換の直接実行時は 'dev')
 const BUILD = typeof __BUILD__ !== 'undefined' ? __BUILD__ : 'dev';

@@ -140,6 +140,14 @@ const css = `
 }
 #${ROOT_ID} .pr-main{ flex:1; display:flex; flex-direction:column; min-width:0; }
 
+/* ---- sync bar ---- */
+#${ROOT_ID} .pr-syncbar{
+  display:flex; align-items:center; gap:var(--s-4); flex:none;
+  padding:var(--s-4) var(--gutter); border-bottom:1px solid var(--line);
+  background:var(--paper-2); font-size:var(--fs-sm); color:var(--ink-3);
+}
+#${ROOT_ID} .pr-syncbar span{ flex:1; min-width:0; }
+
 /* ---- columns / list ---- */
 #${ROOT_ID} .pr-app{ flex:1; display:flex; flex-direction:column; min-height:0; }
 #${ROOT_ID} .pr-cols{ flex:1; display:flex; min-height:0; }

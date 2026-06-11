@@ -39,7 +39,7 @@
 
     // リスト作成
     if (path === '/_api/web/lists' && method === 'POST') {
-      const l = { Id: newGuid(), fields: new Set(['Title']), items: [], nextId: 1 };
+      const l = { Id: newGuid(), fields: new Map([['Title', 'タイトル']]), items: [], nextId: 1 };
       store.lists.set(body.Title, l);
       return json(201, { Id: l.Id });
     }
@@ -54,7 +54,11 @@
 
     if (rest.startsWith('/fields/getbyinternalnameortitle(')) {
       const f = rest.match(/\('([^']*)'\)/)[1];
-      if (method === 'POST' && xm === 'MERGE') return json(204, null); // 表示名変更
+      if (xm === 'MERGE') {
+        if (!list.fields.has(f)) return json(400, { 'odata.error': { message: { value: "列 '" + f + "' が存在しません。" } } });
+        if (body && body.Title) list.fields.set(f, body.Title); // 表示名変更
+        return json(204, null); // Choices / Formula 等の更新も 204
+      }
       // 実機同様: 存在しない列は 404 ではなく 400 ArgumentException
       return list.fields.has(f) ? json(200, { Id: newGuid() })
         : json(400, { 'odata.error': { code: '-2147024809, System.ArgumentException', message: { value: "列 '" + f + "' が存在しません。" } } });
@@ -63,13 +67,22 @@
       const f = rest.match(/InternalName eq '([^']*)'/)[1];
       return json(200, { value: list.fields.has(f) ? [{ Id: newGuid() }] : [] });
     }
+    if (rest.startsWith('/fields?') && rest.includes("$filter=startswith(InternalName,")) {
+      const pre = rest.match(/startswith\(InternalName,'([^']*)'\)/)[1];
+      const value = [...list.fields.entries()]
+        .filter(([n]) => n.startsWith(pre))
+        .map(([n, t]) => ({ InternalName: n, Title: t }));
+      return json(200, { value });
+    }
     if (rest === '/fields' && method === 'POST') {
-      list.fields.add(body.Title);
+      list.fields.set(body.Title, body.Title);
       return json(201, { Id: newGuid() });
     }
     if (rest === '/fields/createfieldasxml' && method === 'POST') {
-      const name = body.parameters.SchemaXml.match(/Name='([^']*)'/)[1];
-      list.fields.add(name);
+      const xml = body.parameters.SchemaXml;
+      const name = xml.match(/ Name='([^']*)'/)[1];
+      const disp = (xml.match(/DisplayName='([^']*)'/) || [null, name])[1];
+      list.fields.set(name, disp);
       return json(201, { Id: newGuid() });
     }
     if (rest.startsWith('/defaultview/viewfields/addviewfield(')) return json(204, null);

@@ -60,3 +60,29 @@ const spPost = (p, b) => sp('POST', p, b);
 const spMerge = (p, b) => sp('POST', p, b, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' });
 const spDelete = (p) => sp('POST', p, null, { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' });
 const lt = (title) => "/_api/web/lists/getbytitle('" + encodeURIComponent(title.replace(/'/g, "''")) + "')";
+
+// コレクション型プロパティ(SP.FieldChoice.Choices 等)の更新は verbose 形式が必要になる
+// 場合があるため、__metadata 付きで MERGE する別経路を用意しておく
+async function spMergeVerbose(path, odataType, body) {
+  const r = await fetch(_webUrl + path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json;odata=verbose',
+      'Content-Type': 'application/json;odata=verbose',
+      'X-RequestDigest': await getDigest(),
+      'X-HTTP-Method': 'MERGE',
+      'IF-MATCH': '*',
+    },
+    credentials: 'same-origin',
+    body: JSON.stringify(Object.assign({ __metadata: { type: odataType } }, body)),
+  });
+  if (!r.ok) {
+    let msg = 'HTTP ' + r.status;
+    try {
+      const j = await r.json();
+      const m = j.error && j.error.message && (j.error.message.value || j.error.message);
+      if (m) msg += ' — ' + m;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+}

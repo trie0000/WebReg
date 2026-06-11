@@ -136,6 +136,10 @@
         </div>`;
     }
     return `
+      <div class="pr-syncbar">
+        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)</span>
+        <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
+      </div>
       <div class="pr-cols">
         <div class="pr-col">
           <div class="pr-sub"><b>第1階層</b><span class="pr-count">${state.l1.length}件</span></div>
@@ -307,6 +311,31 @@
       return;
     }
     if (act === 'select') { state.selectedL1 = id; render(); return; }
+
+    if (act === 'sync-users') {
+      const activeL1 = state.l1.filter((x) => x.Active !== false);
+      const activeL1Ids = new Set(activeL1.map((x) => x.Id));
+      const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id));
+      if (!activeL1.length) {
+        toast('warn', '有効な第1階層がありません。先にマスタを登録してください');
+        return;
+      }
+      const ok = await modal({
+        title: 'リストへ反映',
+        message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
+          '第1階層 ' + activeL1.length + '件を選択肢に、第2階層 ' + activeL2.length +
+          '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。',
+        okLabel: '反映する',
+      });
+      if (!ok) return;
+      run('リストへ反映', async () => {
+        const s = await syncMastersToUserList(state, setStatus);
+        toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
+          '第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
+          (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
+      });
+      return;
+    }
 
     if (act === 'save-settings') {
       const isLocal = app.querySelector('input[name="pr-src"][value="local"]').checked;
