@@ -350,11 +350,9 @@
     const sel = state.l1.find((x) => x.Id === state.selectedL1);
 
     const permBtn = (x) => {
-      const nr = parseGroupIds(x.PermRead).length;
-      const ne = parseGroupIds(x.PermEdit).length;
-      const on = nr || ne;
-      return `<button class="pr-btn pr-btn--icon pr-btn--icon-action${on ? ' pr-perm-on' : ''}" data-act="perm"
-        aria-label="権限グループ" title="権限グループの割当${on ? '(参照 ' + nr + ' / 更新 ' + ne + ')' : '(未設定)'}">${ico('key')}</button>`;
+      const n = permGroupIdsOf(x).length;
+      return `<button class="pr-btn pr-btn--icon pr-btn--icon-action${n ? ' pr-perm-on' : ''}" data-act="perm"
+        aria-label="権限グループ" title="権限グループの割当${n ? '(' + n + '件)' : '(未設定)'}">${ico('key')}</button>`;
     };
     const rowHtml = (x, kind, extra) => `
       <div class="pr-row${x.Active === false ? ' off' : ''}${extra || ''}" data-kind="${kind}" data-id="${x.Id}">
@@ -545,7 +543,7 @@
     }
 
     if (act === 'sync-perms') {
-      const configured = state.l1.filter((x) => parseGroupIds(x.PermRead).length || parseGroupIds(x.PermEdit).length);
+      const configured = state.l1.filter((x) => permGroupIdsOf(x).length);
       if (!configured.length) {
         toast('warn', '権限グループが未割当です。' + LABEL_L1 + 'の鍵アイコンから割り当ててください');
         return;
@@ -554,7 +552,7 @@
       const ok = await modal({
         title: '権限を反映',
         message: '「' + LIST_USERS + '」の各行にアクセス権を設定します: 権限グループを割当済みの' +
-          LABEL_L1 + '(' + configured.length + '件)の行は継承を解除して割当グループのみに(参照=読み取り / 更新=投稿' +
+          LABEL_L1 + '(' + configured.length + '件)の行は継承を解除して割当グループのみに(投稿=参照・更新可' +
           (admins.length ? ' / 管理者グループ ' + admins.length + '件=フルコントロール' : '') +
           ')。未割当の' + LABEL_L1 + 'の行はリストの権限を継承したままにします。' +
           (admins.length ? '' : ' ※管理者グループが未設定です(設定→共通設定)。実行者以外の管理者は制限行を開けなくなります。'),

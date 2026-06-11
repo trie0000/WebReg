@@ -282,7 +282,8 @@ const css = `
 #${ROOT_ID} .pr-toolbar--users .pr-check{ flex:none; }
 
 /* ---- user form ---- */
-#${ROOT_ID} .pr-modal--form{ width:min(640px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
+/* 基底 .pr-modal(440px) と同一詳細度だとソース順で負けるため、二重クラスで上書き */
+#${ROOT_ID} .pr-modal.pr-modal--form{ width:min(860px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
 #${ROOT_ID} .pr-req{ color:var(--danger); }
 #${ROOT_ID} .pr-checks{
   display:flex; flex-wrap:wrap; gap:var(--s-3) var(--s-6);

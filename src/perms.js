@@ -1,8 +1,10 @@
-// 行レベル権限: 組織区分1ごとに SP 権限グループ(参照/更新)を割り当て、
+// 行レベル権限: 組織区分1ごとに SP 権限グループを割り当て、
 // 利用者一覧の各アイテムへ行単位のアクセス権として反映する。
-//   - 割当は L1 マスタの PermRead / PermEdit 列(グループIDのJSON配列)に保存(全員共有)
+//   - 割当グループには「投稿」ロールを付与(更新=参照を含むため参照/更新は分けない)
+//   - 割当は L1 マスタの PermEdit 列(グループIDのJSON配列)に保存(全員共有)。
+//     旧版で PermRead に保存した分も読み込み時に統合する(保存時に PermEdit へ寄せる)
 //   - 管理者グループ(全行フルコントロール)は「WebReg設定」リストに保存(設定ハブから編集)
-//   - 反映: 組織区分1に設定がある行 → 継承を解除し [管理者=フル / 更新=投稿 / 参照=読み取り]
+//   - 反映: 組織区分1に設定がある行 → 継承を解除し [管理者=フル / 割当=投稿]
 //           設定が無い行 → 継承に戻す(リスト既定の権限のまま)
 //   ※ 継承解除時、実行者自身は SP の仕様でフルコントロールが自動付与される(ロックアウトしない)
 
@@ -44,10 +46,13 @@ const parseGroupIds = (s) => {
   } catch { return []; }
 };
 
+// L1 の割当グループID(旧版の PermRead 保存分も統合して返す)
+const permGroupIdsOf = (l1) =>
+  [...new Set(parseGroupIds(l1.PermEdit).concat(parseGroupIds(l1.PermRead)))];
+
 // L1 マスタに割当保存用の列を用意(冪等)
 async function ensurePermColumns() {
-  await ensureField(LIST_L1, 'PermRead', '参照グループ', { FieldTypeKind: 3 });
-  await ensureField(LIST_L1, 'PermEdit', '更新グループ', { FieldTypeKind: 3 });
+  await ensureField(LIST_L1, 'PermEdit', '権限グループ', { FieldTypeKind: 3 });
 }
 
 // 共有設定リスト(キー/値)。管理者グループの保存先
@@ -78,8 +83,7 @@ async function saveAdminGroupIds(ids) {
 }
 
 // L1 に1件でもグループ割当があるか(行単位の自動反映を行うかの判定)
-const hasAnyPermConfig = (state) => state.l1.some(
-  (x) => parseGroupIds(x.PermRead).length || parseGroupIds(x.PermEdit).length);
+const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).length);
 
 // ---- 反映(アイテムへの権限適用) ---------------------------------------
 
@@ -88,20 +92,15 @@ async function buildPermContext(state) {
   const roles = await fetchPermRoles();
   const adminIds = await loadAdminGroupIds();
   const cfgByTitle = new Map();
-  for (const x of state.l1) {
-    cfgByTitle.set(x.Title, {
-      read: parseGroupIds(x.PermRead),
-      edit: parseGroupIds(x.PermEdit),
-    });
-  }
+  for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
   return { roles, adminIds, cfgByTitle };
 }
 
 // 1アイテムへ適用。戻り値 'applied'(固有権限を設定) | 'inherit'(継承に戻した)
 async function applyPermToItem(ctx, itemId, l1Title) {
-  const cfg = ctx.cfgByTitle.get(l1Title || '');
+  const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
   const base = lt(LIST_USERS) + '/items(' + itemId + ')';
-  if (!cfg || (!cfg.read.length && !cfg.edit.length)) {
+  if (!groupIds.length) {
     await spPost(base + '/resetroleinheritance');
     return 'inherit';
   }
@@ -114,14 +113,9 @@ async function applyPermToItem(ctx, itemId, l1Title) {
     await assign(gid, ctx.roles.full.Id);
     done.add(gid);
   }
-  for (const gid of cfg.edit) {
+  for (const gid of groupIds) {
     if (done.has(gid)) continue;
     await assign(gid, ctx.roles.edit.Id);
-    done.add(gid);
-  }
-  for (const gid of cfg.read) {
-    if (done.has(gid)) continue;
-    await assign(gid, ctx.roles.read.Id);
   }
   return 'applied';
 }
@@ -178,15 +172,11 @@ function openL1PermModal(state, l1) {
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="権限グループの割当">
           <h4>権限グループの割当 — ${esc(l1.Title)}</h4>
-          <span class="pr-note">この${esc(LABEL_L1)}の行に対して、割り当てた SP 権限グループへ
-            参照(読み取り) / 更新(投稿) のアクセス権を付与します。反映は「権限を反映」ボタンで実行します。</span>
+          <span class="pr-note">この${esc(LABEL_L1)}の行を参照・更新できる SP 権限グループを選びます
+            (投稿のアクセス権を付与。更新には参照が含まれます)。反映は「権限を反映」ボタンで実行します。</span>
           <div class="pr-field">
-            <label>参照できるグループ(読み取り)</label>
-            <div class="pr-checks pr-checks--perm" data-pglist="r"><span class="pr-note">グループを取得中…</span></div>
-          </div>
-          <div class="pr-field">
-            <label>更新できるグループ(投稿)</label>
-            <div class="pr-checks pr-checks--perm" data-pglist="e"><span class="pr-note">グループを取得中…</span></div>
+            <label>参照・更新できるグループ</label>
+            <div class="pr-checks pr-checks--perm" data-pglist="g"><span class="pr-note">グループを取得中…</span></div>
           </div>
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
@@ -198,10 +188,8 @@ function openL1PermModal(state, l1) {
     (async () => {
       try {
         groups = await fetchSiteGroups();
-        back.querySelector('[data-pglist="r"]').innerHTML =
-          permChecksHtml('r', groups, parseGroupIds(l1.PermRead));
-        back.querySelector('[data-pglist="e"]').innerHTML =
-          permChecksHtml('e', groups, parseGroupIds(l1.PermEdit));
+        back.querySelector('[data-pglist="g"]').innerHTML =
+          permChecksHtml('g', groups, permGroupIdsOf(l1));
         back.querySelector('[data-mact="ok"]').disabled = false;
       } catch (e) {
         back.querySelectorAll('.pr-checks--perm').forEach((p) => {
@@ -220,10 +208,10 @@ function openL1PermModal(state, l1) {
       okBtn.disabled = true;
       try {
         await ensurePermColumns();
-        await spMerge(lt(LIST_L1) + '/items(' + l1.Id + ')', {
-          PermRead: JSON.stringify(collectPermIds(back, 'r')),
-          PermEdit: JSON.stringify(collectPermIds(back, 'e')),
-        });
+        const body = { PermEdit: JSON.stringify(collectPermIds(back, 'g')) };
+        // 旧版の参照/更新分離で保存した分は PermEdit へ寄せて空にする(列がある場合のみ)
+        if (l1.PermRead !== undefined) body.PermRead = '[]';
+        await spMerge(lt(LIST_L1) + '/items(' + l1.Id + ')', body);
         toast('ok', '「' + l1.Title + '」の権限グループを保存しました(反映は「権限を反映」)');
         done(true);
       } catch (e) {
