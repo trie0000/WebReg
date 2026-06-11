@@ -67,6 +67,7 @@
         if (body && body.Title) list.fields.set(f, body.Title); // 表示名変更
         if (body && body.Choices) (list.fieldProps[f] = list.fieldProps[f] || {}).Choices = body.Choices;
         if (body && body.Formula) (list.fieldProps[f] = list.fieldProps[f] || {}).Formula = body.Formula;
+        if (body && body.ClientValidationFormula != null) (list.fieldProps[f] = list.fieldProps[f] || {}).ClientValidationFormula = body.ClientValidationFormula;
         return json(204, null);
       }
       // 実機同様: 存在しない列は 404 ではなく 400 ArgumentException
@@ -80,9 +81,10 @@
     }
     if (rest.startsWith('/fields?') && rest.includes("$filter=startswith(InternalName,")) {
       const pre = rest.match(/startswith\(InternalName,'([^']*)'\)/)[1];
+      list.fieldProps = list.fieldProps || {};
       const value = [...list.fields.entries()]
         .filter(([n]) => n.startsWith(pre))
-        .map(([n, t]) => ({ InternalName: n, Title: t }));
+        .map(([n, t]) => Object.assign({ InternalName: n, Title: t }, list.fieldProps[n] || {}));
       return json(200, { value });
     }
     if (rest === '/fields' && method === 'POST') {

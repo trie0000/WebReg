@@ -74,8 +74,9 @@ async function syncMastersToUserList(state, log) {
   // 組織区分2: 既存の L2_* 列を取得して 追加/改名 を判断
   log(LABEL_L2 + 'のチェック列を更新中…');
   const existing = await spGet(lt(LIST_USERS) +
-    "/fields?$select=InternalName,Title&$filter=startswith(InternalName,'L2_')");
+    "/fields?$select=InternalName,Title,ClientValidationFormula&$filter=startswith(InternalName,'L2_')");
   const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
+  const cvfByInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.ClientValidationFormula || '']));
 
   // 表示名はマスタ名称。第1階層をまたいで同名がある場合は「名称(第1階層名)」で一意化
   const titleCount = new Map();
@@ -98,6 +99,21 @@ async function syncMastersToUserList(state, log) {
     } else if (byInternal.get(internal) !== display) {
       await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
       summary.renamed++;
+    }
+  }
+
+  // SP標準フォームの条件付き表示: 各組織区分2列は「親の組織区分1が選択された時だけ表示」。
+  // この条件式はフィールドの ClientValidationFormula に保存される(UIの「条件式の編集」と同じ場所。
+  // 実機調査で特定 — ClientFormCustomFormatter ではない)
+  log('フォームの条件付き表示を更新中…');
+  for (const x of state.l2) {
+    if (!x.Level1 || !l1Title.has(x.Level1.Id)) continue;
+    const internal = 'L2_' + x.Id;
+    if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
+    const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') + "', 'true', 'false')";
+    if (cvfByInternal.get(internal) !== cond) {
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+        { ClientValidationFormula: cond });
     }
   }
 

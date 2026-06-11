@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-215f29a9" !== 'undefined' ? "0.1.0-215f29a9" : 'dev';
+const BUILD = typeof "0.1.0-2ad8ef9b" !== 'undefined' ? "0.1.0-2ad8ef9b" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -248,8 +248,9 @@ log(LABEL_L1 + 'の選択肢を更新中…');
 await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
 log(LABEL_L2 + 'のチェック列を更新中…');
 const existing = await spGet(lt(LIST_USERS) +
-"/fields?$select=InternalName,Title&$filter=startswith(InternalName,'L2_')");
+"/fields?$select=InternalName,Title,ClientValidationFormula&$filter=startswith(InternalName,'L2_')");
 const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
+const cvfByInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.ClientValidationFormula || '']));
 const titleCount = new Map();
 activeL2.forEach((x) => titleCount.set(x.Title, (titleCount.get(x.Title) || 0) + 1));
 const l1Title = new Map(state.l1.map((x) => [x.Id, x.Title]));
@@ -269,6 +270,17 @@ summary.added++;
 } else if (byInternal.get(internal) !== display) {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
 summary.renamed++;
+}
+}
+log('フォームの条件付き表示を更新中…');
+for (const x of state.l2) {
+if (!x.Level1 || !l1Title.has(x.Level1.Id)) continue;
+const internal = 'L2_' + x.Id;
+if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
+const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') + "', 'true', 'false')";
+if (cvfByInternal.get(internal) !== cond) {
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+{ ClientValidationFormula: cond });
 }
 }
 log('集計列(' + LABEL_L2 + ')を更新中…');
