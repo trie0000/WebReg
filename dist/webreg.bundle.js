@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-14c11915" !== 'undefined' ? "0.1.0-14c11915" : 'dev';
+const BUILD = typeof "0.1.0-7dd5227a" !== 'undefined' ? "0.1.0-7dd5227a" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -645,7 +645,8 @@ const css = `
 #${ROOT_ID} .pr-utable th.active{ color:var(--ink); }
 #${ROOT_ID} .pr-utable td{
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:top;
+  /* 列幅を内容より狭くした場合は折り返して全文表示(省略しない) */
+  white-space:normal; overflow-wrap:anywhere; vertical-align:top;
 }
 #${ROOT_ID} .pr-utable tbody tr{ cursor:pointer; }
 #${ROOT_ID} .pr-utable tbody tr:hover{ background:var(--paper-2); }
