@@ -1,2 +1,57 @@
-(function(){var c=document,a=window;function m(){try{var e=a._spPageContextInfo;if(e&&e.webServerRelativeUrl)return e.webServerRelativeUrl.replace(/\/$/,"")+"/Shared%20Documents/permreg"}catch(t){}var r=location.pathname.match(/^(\/(?:sites|teams)\/[^/]+)/);return(r?r[1]:"")+"/Shared%20Documents/permreg"}var s="";try{a.localStorage&&localStorage.getItem("permreg.dev.bundle-source")==="local"&&(s=(localStorage.getItem("permreg.dev.local-base")||"http://127.0.0.1:18086/permreg").replace(/\/+$/,""))}catch(e){}var l=m(),n=s||l,i=!!s;function o(e){var r="[permreg] \u30D0\u30F3\u30C9\u30EB\u8AAD\u8FBC\u5931\u6557: "+n+(e?" ("+e+")":"")+`
-`+(i?"npm run dev \u304C\u8D77\u52D5\u3057\u3066\u3044\u308B\u304B\u3001\u8A2D\u5B9A\u306E\u30ED\u30FC\u30AB\u30EB\u914D\u4FE1URL\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002":"SP \u306E \u30C9\u30AD\u30E5\u30E1\u30F3\u30C8/permreg/ \u306B dist \u4E00\u5F0F\u3092\u914D\u7F6E\u3059\u308B\u304B\u3001\u8A2D\u5B9A\u753B\u9762\u3067\u958B\u767A\u8005\u30E2\u30FC\u30C9\u306B\u5207\u308A\u66FF\u3048\u3066\u304F\u3060\u3055\u3044\u3002");alert(r),console.error(r)}function p(e){a.__permregSource={base:n,dev:i,ver:e},fetch(n+"/permreg.bundle.js?v="+encodeURIComponent(e)).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.text()}).then(function(r){try{(0,eval)(r)}catch(t){o("eval: "+(t&&t.message||t))}}).catch(function(r){o(r&&r.message||"fetch error")})}function v(e){var r=c.getElementById("permreg-script");r&&r.remove(),a.__permregSource={base:n,dev:!1,ver:e};var t=c.createElement("script");t.id="permreg-script",t.src=n+"/permreg.bundle.js?v="+encodeURIComponent(e),t.onerror=function(){o("script load error")},c.body.appendChild(t)}fetch(n+"/version.txt?t="+Date.now(),{credentials:"same-origin"}).then(function(e){if(!e.ok)throw new Error("HTTP "+e.status);return e.text()}).then(function(e){var r=(e||"").trim()||String(Date.now());i?p(r):v(r)}).catch(function(e){o(e&&e.message||"fetch error")})})();
+(function () {
+var d = document, w = window;
+function spBase() {
+try {
+var c = w._spPageContextInfo;
+if (c && c.webServerRelativeUrl) {
+return c.webServerRelativeUrl.replace(/\/$/, '') + '/Shared%20Documents/permreg';
+}
+} catch (e) { }
+var m = location.pathname.match(/^(\/(?:sites|teams)\/[^/]+)/);
+return (m ? m[1] : '') + '/Shared%20Documents/permreg';
+}
+var dev = '';
+try {
+if (w.localStorage && localStorage.getItem('permreg.dev.bundle-source') === 'local') {
+dev = (localStorage.getItem('permreg.dev.local-base') || 'http://127.0.0.1:18086/permreg').replace(/\/+$/, '');
+}
+} catch (e) { }
+var sp = spBase();
+var base = dev || sp;
+var isLocal = !!dev;
+function fail(why) {
+var msg = '[permreg] バンドル読込失敗: ' + base + (why ? ' (' + why + ')' : '') + '\n' +
+(isLocal
+? 'npm run dev が起動しているか、設定のローカル配信URLを確認してください。'
+: 'SP の ドキュメント/permreg/ に dist 一式を配置するか、設定画面で開発者モードに切り替えてください。');
+alert(msg);
+console.error(msg);
+}
+function evalLoad(ver) {
+w.__permregSource = { base: base, dev: isLocal, ver: ver };
+fetch(base + '/permreg.bundle.js?v=' + encodeURIComponent(ver))
+.then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+.then(function (t) {
+try { (0, eval)(t); }
+catch (e) { fail('eval: ' + (e && e.message || e)); }
+})
+.catch(function (e) { fail(e && e.message || 'fetch error'); });
+}
+function scriptLoad(ver) {
+var o = d.getElementById('permreg-script');
+if (o) o.remove();
+w.__permregSource = { base: base, dev: false, ver: ver };
+var s = d.createElement('script');
+s.id = 'permreg-script';
+s.src = base + '/permreg.bundle.js?v=' + encodeURIComponent(ver);
+s.onerror = function () { fail('script load error'); };
+d.body.appendChild(s);
+}
+fetch(base + '/version.txt?t=' + Date.now(), { credentials: 'same-origin' })
+.then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+.then(function (t) {
+var ver = (t || '').trim() || String(Date.now());
+isLocal ? evalLoad(ver) : scriptLoad(ver);
+})
+.catch(function (e) { fail(e && e.message || 'fetch error'); });
+})();

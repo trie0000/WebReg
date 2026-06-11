@@ -2,7 +2,6 @@
 // 実行中の build と違えば更新モーダル → その場で新しい bundle を再読込する。
 // 中継サーバ不要(ローカル開発サーバ / SP のどちらでも同じ仕組み)。
 // 版比較は安定識別子 <ver>-<srcSha8> の単純比較(buildTime を含めないため誤検知しない)。
-import { modal, toast } from './ui.js';
 
 const CHECK_INTERVAL = 30000;
 
@@ -26,7 +25,7 @@ function applyUpdate(src, ver) {
   }
 }
 
-export function startUpdateWatcher(build) {
+function startUpdateWatcher(build) {
   // 自動更新で新インスタンスが起動したとき、旧インスタンスの監視を必ず止める
   if (window.__permregWatcher) clearInterval(window.__permregWatcher);
   if (window.__permregOnVisible) document.removeEventListener('visibilitychange', window.__permregOnVisible);

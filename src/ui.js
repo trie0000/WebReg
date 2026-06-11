@@ -1,23 +1,22 @@
 // UI 基盤部品: el / esc / toast(右上) / modal(確認・入力)
 // 通知は必ず toast、破壊的操作の確認は必ず modal を使う(alert/confirm/prompt 禁止)
-import { ico } from './icons.js';
 
 let _root = null;
-export function setRoot(root) {
+function setRoot(root) {
   _root = root;
 }
 
-export const esc = (s) => String(s == null ? '' : s)
+const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function el(html) {
+function el(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
   return t.content.firstElementChild;
 }
 
 // kind: 'ok'(2秒) | 'warn'(3秒) | 'err'(手動close + コピーボタン)
-export function toast(kind, msg) {
+function toast(kind, msg) {
   let host = _root.querySelector('.pr-toasts');
   if (!host) {
     host = el('<div class="pr-toasts" role="status" aria-live="polite"></div>');
@@ -45,7 +44,7 @@ export function toast(kind, msg) {
 // 渡さなければ確認モーダル(resolve: boolean)。
 // multiline: true で複数行テキストエリア(自動伸縮・上限55vh。確定は Cmd/Ctrl+Enter のみ)。
 // backdrop は mousedown 起点で判定(ドラッグ操作の誤クローズ防止)。
-export function modal({ title, message, inputValue, multiline, okLabel, danger }) {
+function modal({ title, message, inputValue, multiline, okLabel, danger }) {
   return new Promise((resolve) => {
     const hasInput = inputValue !== undefined;
     const back = el(`

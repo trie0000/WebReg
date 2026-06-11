@@ -3,11 +3,11 @@
 let _webUrl = '';
 let _digest = null; // {value, exp}
 
-export function setWebUrl(u) {
+function setWebUrl(u) {
   _webUrl = String(u || '').replace(/\/+$/, '');
   _digest = null;
 }
-export function getWebUrl() {
+function getWebUrl() {
   return _webUrl;
 }
 
@@ -55,8 +55,8 @@ async function sp(method, path, body, headers) {
   return t ? JSON.parse(t) : null;
 }
 
-export const spGet = (p) => sp('GET', p);
-export const spPost = (p, b) => sp('POST', p, b);
-export const spMerge = (p, b) => sp('POST', p, b, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' });
-export const spDelete = (p) => sp('POST', p, null, { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' });
-export const lt = (title) => "/_api/web/lists/getbytitle('" + encodeURIComponent(title.replace(/'/g, "''")) + "')";
+const spGet = (p) => sp('GET', p);
+const spPost = (p, b) => sp('POST', p, b);
+const spMerge = (p, b) => sp('POST', p, b, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' });
+const spDelete = (p) => sp('POST', p, null, { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' });
+const lt = (title) => "/_api/web/lists/getbytitle('" + encodeURIComponent(title.replace(/'/g, "''")) + "')";

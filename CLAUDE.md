@@ -17,9 +17,13 @@
 
 ## 構成
 
-- `src/` — モジュール分割された本体(config / sp / schema / icons / styles / ui / main)+ `loader.js`
-- `build.js` — `npm run build` で dist/ 一式を生成(bookmarklet はローダ方式、命名は全アプリ共通規約 §17)
-- `dev/serve.js` — `npm run dev` で dist/ を CORS 付き配信(開発者モード用、port 18086)
+ツールチェーンは **Python 3.8+ 標準ライブラリのみ**(npm / Node / pip 不要 — 委託先環境の制約)。
+
+- `src/` — ファイル分割された本体(config / sp / schema / icons / styles / ui / updater / main)+ `loader.js`。
+  import/export は使わず、build.py の `ORDER` 順の連結で動く形式(宣言名はファイル間で一意に)
+- `build.py` — `python3 build.py` で dist/ 一式を生成(連結+軽量minify+版識別子置換。命名は全アプリ共通規約 §17)
+- `dev/serve.py` — `python3 dev/serve.py` で dist/ を CORS 付き配信(開発者モード用、port 18086)
+- `VERSION` — semver のベース版数(版識別子は `<ver>-<srcSha8>`)
 - `test/harness.html` — SharePoint REST をメモリ上でモックして UI を確認するハーネス(`dist/permreg.bundle.js` を読み込む)
 
 ## 規約

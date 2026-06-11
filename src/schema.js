@@ -1,8 +1,6 @@
 // マスタリストのスキーマ定義と初期セットアップ(冪等)
-import { LIST_L1, LIST_L2 } from './config.js';
-import { spGet, spPost, spMerge, lt } from './sp.js';
 
-export async function listId(title) {
+async function listId(title) {
   try {
     return (await spGet(lt(title) + '?$select=Id')).Id;
   } catch (e) {
@@ -52,7 +50,7 @@ async function addViewFields(title, internals) {
   }
 }
 
-export async function setup(log) {
+async function setup(log) {
   log('「' + LIST_L1 + '」を確認中…');
   const id1 = await ensureList(LIST_L1, '権限登録リスト用 組織区分(第1階層)マスタ');
   await ensureField(LIST_L1, 'SortOrder', '並び順', { FieldTypeKind: 9 });

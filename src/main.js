@@ -4,13 +4,6 @@
  * dist/permreg.bundle.js として SP のドキュメントライブラリ or ローカル開発サーバから配信。
  * 開発基準は DEVELOPMENT.md、UI 規約は CLAUDE.md と Notion「UI/デザインルール」を参照。
  */
-import { ROOT_ID, BUILD, LS_WEB_URL, LS_DEV_SOURCE, LS_DEV_BASE, DEFAULT_LOCAL_BASE, LIST_L1, LIST_L2 } from './config.js';
-import { setWebUrl, getWebUrl, spGet, spPost, spMerge, spDelete, lt } from './sp.js';
-import { listId, setup } from './schema.js';
-import { ico } from './icons.js';
-import { css } from './styles.js';
-import { setRoot, el, esc, toast, modal } from './ui.js';
-import { startUpdateWatcher } from './updater.js';
 
 (() => {
   'use strict';

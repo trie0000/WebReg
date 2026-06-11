@@ -1,8 +1,7 @@
 // デザイントークン + コンポーネント CSS。トークンは Spira 共通(Notion「UI/デザインルール」準拠)
 // SP ホスト CSS シールド: ルール先頭の all:initial + ID セレクタ + !important
-import { ROOT_ID } from './config.js';
 
-export const css = `
+const css = `
 #${ROOT_ID}{
   /* SP host CSS シールド。後続宣言と custom property は all の対象外/上書きで生き残る */
   all: initial;

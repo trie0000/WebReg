@@ -13,13 +13,17 @@ src/
 ├── icons.js    Feather 風 SVG アイコン
 ├── styles.js   デザイントークン + 全 CSS(トークン定義はここだけ)
 ├── ui.js       UI 基盤部品(el/esc/toast/modal)
+├── updater.js  自動更新(version.txt 監視 → 更新モーダル → 再読込)
 ├── main.js     エントリ: state・ビュー・イベント・起動
 └── loader.js   ローダ(bookmarklet 本体。バンドルに含めない)
 ```
 
-- **新しい責務は新しいファイル**にする(main.js に足し続けない)。ビューが増えて main.js が
-  上限を超えたら `views/` ディレクトリに分割する
-- 依存方向は一方向のみ: `main → (schema|ui|views) → (sp|icons|styles|config)`。逆流禁止
+- **委託先で npm/Node が使えないため、ビルドは「連結方式」**: src は import/export を使わず、
+  build.py の `ORDER` に書いた順に連結すると1つの IIFE として動く形で書く。
+  そのため**トップレベルの宣言名はファイル間で一意**にすること(連結後は同一スコープ)
+- **新しい責務は新しいファイル**にする(main.js に足し続けない)。ファイルを増やしたら
+  build.py の `ORDER` に依存順で追加する
+- 依存方向は一方向のみ: `main → (schema|ui|updater|views) → (sp|icons|styles|config)`。逆流禁止
 
 ## 2. サイズ上限(超えたら分割・棚卸し)
 
@@ -35,7 +39,9 @@ src/
 
 ## 3. 依存ポリシー
 
-- ランタイム依存は**原則ゼロ**(ブラウザ標準 API のみ)。devDependencies は esbuild のみ
+- ランタイム依存は**原則ゼロ**(ブラウザ標準 API のみ)
+- **ビルドも Python 3.8+ の標準ライブラリのみ**(npm / Node / pip / esbuild 不要 — 委託先環境の制約)。
+  minify はコメント・インデント・空行除去の軽量実装(build.py 内)。識別子短縮はしない
 - **外部動的モジュールのインポートは原則禁止**。CDN からの `import()` / `<script src>` /
   `fetch→eval` など、**実行時に外部から取得するコード**を bundle に持ち込まない
   (許されるのは自前配信の bundle/loader 自身のみ)。理由: 供給元の改変・消失が
@@ -63,15 +69,16 @@ src/
 
 ## 6. ビルド・配布(全アプリ共通 §17 準拠)
 
-- `npm run build` → dist/ に一括生成。命名は `permreg.bundle.js` / `version.txt` /
+- `python3 build.py` → dist/ に一括生成。命名は `permreg.bundle.js` / `version.txt` /
   `permreg.loader.js` / `bookmarklet.txt` / `install-loader.html` / `install.html`
-- 版識別子は `<ver>-<srcSha8>`(buildTime・dirty マーカーを**含めない** — 更新誤検知防止)
-- 配布先は SP の `ドキュメント/permreg/`。開発中は `npm run dev`(127.0.0.1:18086、CORS付き、
-  全リクエスト1行ログ)+ アプリ内「設定 → 開発者モード」でローカル参照
+- 版識別子は `<ver>-<srcSha8>`(buildTime・dirty マーカーを**含めない** — 更新誤検知防止)。
+  ベース版数は `VERSION` ファイルで管理(semver)
+- 配布先は SP の `ドキュメント/permreg/`。開発中は `python3 dev/serve.py`(127.0.0.1:18086、
+  CORS付き、全リクエスト1行ログ)+ アプリ内「設定 → 開発者モード」でローカル参照
 - 起動中の自動更新は updater.js(読込元の version.txt を監視 → 更新モーダル → その場で再読込)。
   permreg は共通規約 §17 の「トースト案内」ではなく**更新モーダル**を採用(ユーザー指定)。
   `__permregSource` は bundle 実行**前**に設定する(後だと初回起動で監視が無効になる)
-- semver: バグ修正=PATCH / 後方互換の機能追加=MINOR / 破壊的変更=MAJOR(package.json の version)
+- semver: バグ修正=PATCH / 後方互換の機能追加=MINOR / 破壊的変更=MAJOR(VERSION ファイル)
 
 ## 7. コミット規律
 
