@@ -172,9 +172,11 @@ function usersAfterRender(app, state, ctx) {
   if (!table) return;
 
   const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
+  const orderedCols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean);
   attachGrid(table, {
     tableKey: USERS_GRID_KEY,
     colKeys: [null].concat(order), // 先頭はチェックボックス列(操作不可)
+    defaults: ['34px'].concat(orderedCols.map((c) => c.w)),
     onReorder: (fromKey, toKey) => {
       if (fromKey && toKey) {
         const cur = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));

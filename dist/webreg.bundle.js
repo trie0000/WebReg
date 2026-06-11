@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-7dd5227a" !== 'undefined' ? "0.1.0-7dd5227a" : 'dev';
+const BUILD = typeof "0.1.0-d9864c7e" !== 'undefined' ? "0.1.0-d9864c7e" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -923,6 +923,19 @@ function attachGrid(table, opts) {
 const cols = [...table.querySelectorAll('colgroup col')];
 const ths = [...table.querySelectorAll('thead th')];
 const minWidth = opts.minWidth || 48;
+const syncTableWidth = () => {
+let total = 0;
+cols.forEach((c, i) => {
+const w = parseInt(c.style.width, 10);
+total += Number.isFinite(w) ? w : Math.round(ths[i].getBoundingClientRect().width);
+});
+table.style.width = total + 'px';
+};
+syncTableWidth();
+const suppressNextClick = () => {
+table.dataset.dragJustEnded = '1';
+setTimeout(() => { delete table.dataset.dragJustEnded; }, 0);
+};
 ths.forEach((th, i) => {
 const key = opts.colKeys[i];
 if (!key) return;
@@ -947,13 +960,16 @@ handle.classList.add('dragging');
 const onMove = (ev) => {
 const w = Math.max(minWidth, Math.round(startW + ev.clientX - startX));
 if (col) col.style.width = w + 'px';
+syncTableWidth();
 };
 const onUp = () => {
 document.removeEventListener('pointermove', onMove);
 document.removeEventListener('pointerup', onUp);
 document.body.style.cursor = '';
 handle.classList.remove('dragging');
+suppressNextClick();
 gridWriteWidth(opts.tableKey, key, Math.round(th.getBoundingClientRect().width));
+syncTableWidth();
 };
 document.addEventListener('pointermove', onMove);
 document.addEventListener('pointerup', onUp);
@@ -961,8 +977,10 @@ document.addEventListener('pointerup', onUp);
 handle.addEventListener('dblclick', (e) => {
 e.preventDefault();
 e.stopPropagation();
-if (cols[i]) cols[i].style.width = '';
+if (cols[i]) cols[i].style.width = (opts.defaults && opts.defaults[i]) || '';
 gridRemoveWidth(opts.tableKey, key);
+suppressNextClick();
+syncTableWidth();
 });
 th.title = 'ドラッグで列順変更 / クリックで並び替え / 右クリックで列順リセット';
 th.addEventListener('pointerdown', (e) => {
@@ -995,8 +1013,7 @@ mark(null);
 th.style.opacity = '';
 document.body.style.cursor = '';
 if (!dragging) return;
-table.dataset.dragJustEnded = '1';
-setTimeout(() => { delete table.dataset.dragJustEnded; }, 0);
+suppressNextClick();
 const t = targetTh(ev);
 const toKey = t && t !== th ? opts.colKeys[ths.indexOf(t)] : null;
 if (toKey) opts.onReorder(key, toKey);
@@ -1228,9 +1245,11 @@ function usersAfterRender(app, state, ctx) {
 const table = app.querySelector('.pr-utable[data-grid="users"]');
 if (!table) return;
 const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
+const orderedCols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean);
 attachGrid(table, {
 tableKey: USERS_GRID_KEY,
 colKeys: [null].concat(order),
+defaults: ['34px'].concat(orderedCols.map((c) => c.w)),
 onReorder: (fromKey, toKey) => {
 if (fromKey && toKey) {
 const cur = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));

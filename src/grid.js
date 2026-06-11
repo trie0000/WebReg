@@ -72,6 +72,25 @@ function attachGrid(table, opts) {
   const ths = [...table.querySelectorAll('thead th')];
   const minWidth = opts.minWidth || 48;
 
+  // テーブル幅を列幅の合計(実px)で明示する。width:max-content のままだと
+  // ブラウザが fixed レイアウトを auto 扱いにし、列を内容(ヘッダ文字列)より
+  // 狭くできなくなるため
+  const syncTableWidth = () => {
+    let total = 0;
+    cols.forEach((c, i) => {
+      const w = parseInt(c.style.width, 10);
+      total += Number.isFinite(w) ? w : Math.round(ths[i].getBoundingClientRect().width);
+    });
+    table.style.width = total + 'px';
+  };
+  syncTableWidth();
+
+  // 直後の click(ソート)を1回だけ無効化する(リサイズ/列順ドラッグの両方で使用)
+  const suppressNextClick = () => {
+    table.dataset.dragJustEnded = '1';
+    setTimeout(() => { delete table.dataset.dragJustEnded; }, 0);
+  };
+
   ths.forEach((th, i) => {
     const key = opts.colKeys[i];
     if (!key) return;
@@ -99,13 +118,16 @@ function attachGrid(table, opts) {
       const onMove = (ev) => {
         const w = Math.max(minWidth, Math.round(startW + ev.clientX - startX));
         if (col) col.style.width = w + 'px';
+        syncTableWidth();
       };
       const onUp = () => {
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
         document.body.style.cursor = '';
         handle.classList.remove('dragging');
+        suppressNextClick(); // つまみは th の子要素のため click がソートに化けるのを防ぐ
         gridWriteWidth(opts.tableKey, key, Math.round(th.getBoundingClientRect().width));
+        syncTableWidth();
       };
       document.addEventListener('pointermove', onMove);
       document.addEventListener('pointerup', onUp);
@@ -113,8 +135,11 @@ function attachGrid(table, opts) {
     handle.addEventListener('dblclick', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (cols[i]) cols[i].style.width = '';
+      // 既定幅に戻す(空にすると fixed レイアウトの幅計算が崩れるため明示する)
+      if (cols[i]) cols[i].style.width = (opts.defaults && opts.defaults[i]) || '';
       gridRemoveWidth(opts.tableKey, key);
+      suppressNextClick();
+      syncTableWidth();
     });
 
     // ---- 列順ドラッグ(pointer ベース)。6px 動いたらドラッグ、動かなければクリック(=ソート)
@@ -149,8 +174,7 @@ function attachGrid(table, opts) {
         th.style.opacity = '';
         document.body.style.cursor = '';
         if (!dragging) return; // クリック扱い → th の click(ソート)に委ねる
-        table.dataset.dragJustEnded = '1';
-        setTimeout(() => { delete table.dataset.dragJustEnded; }, 0);
+        suppressNextClick();
         const t = targetTh(ev);
         const toKey = t && t !== th ? opts.colKeys[ths.indexOf(t)] : null;
         if (toKey) opts.onReorder(key, toKey);
