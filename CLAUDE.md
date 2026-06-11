@@ -10,10 +10,16 @@
 - API キー等の秘密情報をコード/リポジトリに置かない
 - コミットメッセージにも固有名を書かない(履歴に残るため)
 
+## 開発基準(必読)
+
+**コードを書く前に [DEVELOPMENT.md](DEVELOPMENT.md) を読むこと。**
+モジュール構成・サイズ上限・依存ポリシー・テスト基準・配布規約はそこに集約してある。
+
 ## 構成
 
-- `src/main.js` — bookmarklet 本体(単一ファイル・IIFE・プレーンJS)
-- `build.js` — `npm run build` で `dist/permreg.bundle.js`(素のまま) / `dist/version.txt` / `dist/bookmarklet.txt` / `dist/install.html` を生成(命名は全アプリ共通規約)
+- `src/` — モジュール分割された本体(config / sp / schema / icons / styles / ui / main)+ `loader.js`
+- `build.js` — `npm run build` で dist/ 一式を生成(bookmarklet はローダ方式、命名は全アプリ共通規約 §17)
+- `dev/serve.js` — `npm run dev` で dist/ を CORS 付き配信(開発者モード用、port 18086)
 - `test/harness.html` — SharePoint REST をメモリ上でモックして UI を確認するハーネス(`dist/permreg.bundle.js` を読み込む)
 
 ## 規約

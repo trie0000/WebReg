@@ -4,7 +4,8 @@
   "description": "SharePoint-backed 利用者権限登録リスト管理 bookmarklet",
   "private": true,
   "scripts": {
-    "build": "node build.js"
+    "build": "node build.js",
+    "dev": "node dev/serve.js"
   },
   "devDependencies": {
     "esbuild": "^0.21.0"
