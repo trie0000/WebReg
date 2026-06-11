@@ -85,8 +85,12 @@ function usersViewHtml(state) {
     return `
       <div class="pr-hero">
         <h4>「${esc(LIST_USERS)}」リストがまだありません</h4>
-        <p>マスタ管理で組織区分を登録し、「リストへ反映」を実行するとリストが作成されます。</p>
-        <button class="pr-btn pr-btn--primary" data-act="nav" data-view="master">マスタ管理を開く</button>
+        <p>マスタ管理で組織区分を登録して「リストへ反映」を実行するか、<br>
+          CSVインポートから始めると必要なリスト・マスタを自動作成します。</p>
+        <div style="display:flex; gap:var(--s-3)">
+          <button class="pr-btn pr-btn--primary" data-act="user-import">CSVインポートから始める</button>
+          <button class="pr-btn pr-btn--secondary" data-act="nav" data-view="master">マスタ管理を開く</button>
+        </div>
       </div>`;
   }
   // 選択状態の整理(存在しない行の選択を破棄)

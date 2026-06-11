@@ -196,6 +196,12 @@
     const ok = await openImportConfirmModal(plan);
     if (!ok) return;
     run('インポート', async () => {
+      // 0) マスタリスト自体が無ければ初期セットアップ(冪等)
+      if (!state.ready) {
+        setStatus('マスタリストを作成中…');
+        await setup(setStatus);
+        state.ready = true;
+      }
       // 1) 未登録マスタの自動登録(組織区分1 → 再読込 → 組織区分2)
       if (plan.missingL1.length || plan.missingL2.length) {
         setStatus('未登録マスタを登録中…');

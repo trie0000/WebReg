@@ -37,7 +37,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-d43598c1" !== 'undefined' ? "0.1.0-d43598c1" : 'dev';
+const BUILD = typeof "0.1.0-c87e44a4" !== 'undefined' ? "0.1.0-c87e44a4" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1109,8 +1109,12 @@ if (!state.usersReady) {
 return `
       <div class="pr-hero">
         <h4>「${esc(LIST_USERS)}」リストがまだありません</h4>
-        <p>マスタ管理で組織区分を登録し、「リストへ反映」を実行するとリストが作成されます。</p>
-        <button class="pr-btn pr-btn--primary" data-act="nav" data-view="master">マスタ管理を開く</button>
+        <p>マスタ管理で組織区分を登録して「リストへ反映」を実行するか、<br>
+          CSVインポートから始めると必要なリスト・マスタを自動作成します。</p>
+        <div style="display:flex; gap:var(--s-3)">
+          <button class="pr-btn pr-btn--primary" data-act="user-import">CSVインポートから始める</button>
+          <button class="pr-btn pr-btn--secondary" data-act="nav" data-view="master">マスタ管理を開く</button>
+        </div>
       </div>`;
 }
 const ids = new Set(state.users.map((u) => u.Id));
@@ -2039,6 +2043,11 @@ return;
 const ok = await openImportConfirmModal(plan);
 if (!ok) return;
 run('インポート', async () => {
+if (!state.ready) {
+setStatus('マスタリストを作成中…');
+await setup(setStatus);
+state.ready = true;
+}
 if (plan.missingL1.length || plan.missingL2.length) {
 setStatus('未登録マスタを登録中…');
 let order1 = nextOrder(state.l1);
