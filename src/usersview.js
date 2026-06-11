@@ -28,10 +28,11 @@ const USER_COLS = [
   { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 
-// 行の組織区分1に紐づく有効な組織区分2だけを ☑(チェック済)/☐(未チェック)で表示
+// 行の組織区分1に紐づく有効な組織区分2だけを ☑(チェック済)/☐(未チェック)で表示。
+// 「組織区分2のすべて」フラグが立っている行は全☑として解釈する(集計列と同じ)
 function userOrg2Text(state, item) {
   return activeL2Of(state, item.OrgLevel1 || '')
-    .map((m) => (item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
+    .map((m) => (item.L2All === true || item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
     .join(' / ');
 }
 
@@ -267,6 +268,8 @@ function openUserForm(state, onSubmit, existing) {
               <label>${esc(LABEL_L2)}</label>
               <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
             </div>
+            <label class="pr-check"><input type="checkbox" id="uf-l2all" ${existing && existing.L2All === true ? 'checked' : ''}>
+              ${esc(LABEL_L2)}のすべて(チェックすると全${esc(LABEL_L2)}を選択した扱いになります)</label>
             <div class="pr-checks" id="uf-l2"></div>
           </div>
           ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
@@ -301,6 +304,16 @@ function openUserForm(state, onSubmit, existing) {
     l1Sel.addEventListener('change', renderL2);
     renderL2();
 
+    // 「すべて」チェック中は個別チェック欄と全選択ボタンを隠す(SP標準フォームと同じ挙動)
+    const l2AllChk = back.querySelector('#uf-l2all');
+    const applyL2All = () => {
+      const on = l2AllChk.checked;
+      l2Box.style.display = on ? 'none' : '';
+      back.querySelector('[data-ufact="all"]').style.display = on ? 'none' : '';
+    };
+    l2AllChk.addEventListener('change', applyL2All);
+    applyL2All();
+
     const done = (val) => {
       document.removeEventListener('keydown', onKey, true);
       back.remove();
@@ -322,13 +335,19 @@ function openUserForm(state, onSubmit, existing) {
         OrgLevel1: l1Sel.value || '',
         Notes: back.querySelector('#uf-notes').value.trim(),
       };
-      for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
-        if (cb.checked) body['L2_' + cb.dataset.l2] = true;
+      body.L2All = l2AllChk.checked;
+      if (!l2AllChk.checked) {
+        for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
+          if (cb.checked) body['L2_' + cb.dataset.l2] = true;
+        }
       }
       if (isEdit) {
-        // 以前 true だったチェックが外れた/別の組織区分1に移った場合は明示的に false でクリア
-        for (const k of Object.keys(existing)) {
-          if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false;
+        // 「すべて」オフのとき: 以前 true だったチェックが外れた/別の組織区分1に移った場合は
+        // 明示的に false でクリア(「すべて」オン時は個別フラグに触らない)
+        if (!l2AllChk.checked) {
+          for (const k of Object.keys(existing)) {
+            if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false;
+          }
         }
         body.SystemDeleted = back.querySelector('#uf-sysdel').checked;
       }

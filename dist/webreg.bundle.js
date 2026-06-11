@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-2ad8ef9b" !== 'undefined' ? "0.1.0-2ad8ef9b" : 'dev';
+const BUILD = typeof "0.1.0-71c5cee6" !== 'undefined' ? "0.1.0-71c5cee6" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -244,6 +244,7 @@ const activeL2 = state.l2
 ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
 const summary = { createdList: false, l1Count: activeL1.length, added: 0, renamed: 0, l2Count: activeL2.length };
 summary.createdList = await ensureUserList(log);
+await ensureField(LIST_USERS, 'L2All', '組織区分2のすべて', { FieldTypeKind: 8, DefaultValue: '0' });
 log(LABEL_L1 + 'の選択肢を更新中…');
 await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
 log(LABEL_L2 + 'のチェック列を更新中…');
@@ -277,24 +278,29 @@ for (const x of state.l2) {
 if (!x.Level1 || !l1Title.has(x.Level1.Id)) continue;
 const internal = 'L2_' + x.Id;
 if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
-const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') + "', 'true', 'false')";
+const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') +
+"' && [$L2All] != true, 'true', 'false')";
 if (cvfByInternal.get(internal) !== cond) {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
 { ClientValidationFormula: cond });
 }
 }
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
+{ ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" });
 log('集計列(' + LABEL_L2 + ')を更新中…');
 let expr = '""';
 for (const l1 of [...activeL1].reverse()) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
-const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
+const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
 .join('&" / "&');
-expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
+const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
+const branch = 'IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')';
+expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
 }
 const formula = '=' + expr;
 if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-const refs = "<FieldRef Name='OrgLevel1'/>" +
+const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
 activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
 const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
 " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
@@ -305,7 +311,7 @@ await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", 
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
 }
 await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
-const orderedManaged = ['OrgLevel1', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
+const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
 try {
 log('列の並び順を更新中…');
 await applyColumnOrder(orderedManaged);
@@ -1018,7 +1024,7 @@ const USER_COLS = [
 ];
 function userOrg2Text(state, item) {
 return activeL2Of(state, item.OrgLevel1 || '')
-.map((m) => (item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
+.map((m) => (item.L2All === true || item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
 .join(' / ');
 }
 function userColLabel(c) {
@@ -1228,6 +1234,8 @@ activeL1.map((x) => '<option' + (existing && existing.OrgLevel1 === x.Title ? ' 
               <label>${esc(LABEL_L2)}</label>
               <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
             </div>
+            <label class="pr-check"><input type="checkbox" id="uf-l2all" ${existing && existing.L2All === true ? 'checked' : ''}>
+              ${esc(LABEL_L2)}のすべて(チェックすると全${esc(LABEL_L2)}を選択した扱いになります)</label>
             <div class="pr-checks" id="uf-l2"></div>
           </div>
           ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
@@ -1258,6 +1266,14 @@ existing && existing['L2_' + x.Id] === true ? ' checked' : ''}>${esc(x.Title)}</
 };
 l1Sel.addEventListener('change', renderL2);
 renderL2();
+const l2AllChk = back.querySelector('#uf-l2all');
+const applyL2All = () => {
+const on = l2AllChk.checked;
+l2Box.style.display = on ? 'none' : '';
+back.querySelector('[data-ufact="all"]').style.display = on ? 'none' : '';
+};
+l2AllChk.addEventListener('change', applyL2All);
+applyL2All();
 const done = (val) => {
 document.removeEventListener('keydown', onKey, true);
 back.remove();
@@ -1279,12 +1295,17 @@ Permission: back.querySelector('#uf-perm').value,
 OrgLevel1: l1Sel.value || '',
 Notes: back.querySelector('#uf-notes').value.trim(),
 };
+body.L2All = l2AllChk.checked;
+if (!l2AllChk.checked) {
 for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
 if (cb.checked) body['L2_' + cb.dataset.l2] = true;
 }
+}
 if (isEdit) {
+if (!l2AllChk.checked) {
 for (const k of Object.keys(existing)) {
 if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false;
+}
 }
 body.SystemDeleted = back.querySelector('#uf-sysdel').checked;
 }

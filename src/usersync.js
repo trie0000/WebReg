@@ -67,6 +67,9 @@ async function syncMastersToUserList(state, log) {
   const summary = { createdList: false, l1Count: activeL1.length, added: 0, renamed: 0, l2Count: activeL2.length };
   summary.createdList = await ensureUserList(log);
 
+  // 「組織区分2のすべて」フラグ列(チェックで全組織区分2を選択扱いにする)
+  await ensureField(LIST_USERS, 'L2All', '組織区分2のすべて', { FieldTypeKind: 8, DefaultValue: '0' });
+
   // 組織区分1: 選択肢列を有効マスタで更新
   log(LABEL_L1 + 'の選択肢を更新中…');
   await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
@@ -110,12 +113,16 @@ async function syncMastersToUserList(state, log) {
     if (!x.Level1 || !l1Title.has(x.Level1.Id)) continue;
     const internal = 'L2_' + x.Id;
     if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
-    const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') + "', 'true', 'false')";
+    const cond = "=if([$OrgLevel1] == '" + String(l1Title.get(x.Level1.Id)).replace(/'/g, '') +
+      "' && [$L2All] != true, 'true', 'false')";
     if (cvfByInternal.get(internal) !== cond) {
       await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
         { ClientValidationFormula: cond });
     }
   }
+  // 「すべて」列自体は組織区分1を選んだときだけ表示
+  await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
+    { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" });
 
   // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
@@ -124,13 +131,15 @@ async function syncMastersToUserList(state, log) {
   for (const l1 of [...activeL1].reverse()) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
-    const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
+    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
       .join('&" / "&');
-    expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
+    const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
+    const branch = 'IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')';
+    expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
   }
   const formula = '=' + expr;
   if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-    const refs = "<FieldRef Name='OrgLevel1'/>" +
+    const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
       activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
     const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
       " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
@@ -144,7 +153,7 @@ async function syncMastersToUserList(state, log) {
   await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
 
   // 列の並び順をマスタに合わせる(既定ビュー + SP標準フォーム)。失敗しても反映自体は成立
-  const orderedManaged = ['OrgLevel1', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
+  const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
   try {
     log('列の並び順を更新中…');
     await applyColumnOrder(orderedManaged);
