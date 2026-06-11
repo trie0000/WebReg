@@ -101,14 +101,21 @@ async function syncMastersToUserList(state, log) {
     }
   }
 
-  // 集計列: ☑/◽ をマスタの並び順で連結する式に更新(並び替えもここで追従)
+  // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/◽ で連結する式に更新
+  // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
   log('集計列(' + LABEL_L2 + ')を更新中…');
-  const formula = activeL2.length
-    ? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
-      .join('&" / "&')
-    : '=""';
+  let expr = '""';
+  for (const l1 of [...activeL1].reverse()) {
+    const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
+    if (!kids.length) continue;
+    const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
+      .join('&" / "&');
+    expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
+  }
+  const formula = '=' + expr;
   if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-    const refs = activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+    const refs = "<FieldRef Name='OrgLevel1'/>" +
+      activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
     const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
       " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
       '<FieldRefs>' + refs + '</FieldRefs></Field>';

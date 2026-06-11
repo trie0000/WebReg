@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-8867a99d" !== 'undefined' ? "0.1.0-8867a99d" : 'dev';
+const BUILD = typeof "0.1.0-a4e66506" !== 'undefined' ? "0.1.0-a4e66506" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -272,12 +272,18 @@ summary.renamed++;
 }
 }
 log('集計列(' + LABEL_L2 + ')を更新中…');
-const formula = activeL2.length
-? '=' + activeL2.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
-.join('&" / "&')
-: '=""';
+let expr = '""';
+for (const l1 of [...activeL1].reverse()) {
+const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
+if (!kids.length) continue;
+const concat = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","◽")&"' + displayOf(x) + '"')
+.join('&" / "&');
+expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + concat + ',' + expr + ')';
+}
+const formula = '=' + expr;
 if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-const refs = activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+const refs = "<FieldRef Name='OrgLevel1'/>" +
+activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
 const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
 " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
 '<FieldRefs>' + refs + '</FieldRefs></Field>';
@@ -997,12 +1003,7 @@ const USER_COLS = [
 { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 function userOrg2Text(state, item) {
-const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
-const activeL1Ids = new Set(state.l1.filter((x) => x.Active !== false).map((x) => x.Id));
-return state.l2
-.filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id))
-.sort((a, b) => (l1Order.get(a.Level1.Id) - l1Order.get(b.Level1.Id)) ||
-((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id))
+return activeL2Of(state, item.OrgLevel1 || '')
 .map((m) => (item['L2_' + m.Id] === true ? '☑' : '◽') + m.Title)
 .join(' / ');
 }
