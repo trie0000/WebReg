@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-2c476ddd" !== 'undefined' ? "0.1.0-2c476ddd" : 'dev';
+const BUILD = typeof "0.1.0-215f29a9" !== 'undefined' ? "0.1.0-215f29a9" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -361,6 +361,7 @@ const css = `
   --line:rgba(42,42,38,.12); --line-strong:rgba(42,42,38,.18);
   --accent:#7a8a78; --accent-soft:rgba(122,138,120,.18); --accent-strong:#5e6f5c;
   --danger:#b8534a; --danger-soft:rgba(184,83,74,.10); --warn:#c47f1c; --ok:#2f6f5e;
+  --badge-new:#3b82f6; --badge-upd:#f59e0b;
   --font-sans:"Meiryo","メイリオ","Hiragino Sans","Yu Gothic UI",-apple-system,"Segoe UI",system-ui,sans-serif;
   --font-mono:ui-monospace,"Cascadia Mono","Consolas",monospace;
   --fs-xs:11px; --fs-sm:12px; --fs-md:13px; --fs-base:15px; --fs-lg:16px; --fs-xl:18px;
@@ -587,12 +588,13 @@ const css = `
 #${ROOT_ID} .pr-col-resize:hover, #${ROOT_ID} .pr-col-resize.dragging{ background:var(--accent-soft); }
 /* バッジ(NEW/更新/削除済) */
 #${ROOT_ID} .pr-badge{
-  display:inline-block; font-size:var(--fs-xs); font-family:var(--font-mono);
-  border-radius:var(--r-2); padding:0 var(--s-2); margin-right:var(--s-2); line-height:1.6;
+  display:inline-block; font-size:10px; font-weight:700; letter-spacing:.05em;
+  border-radius:var(--r-2); padding:1px 6px; margin-right:var(--s-2); line-height:1.5;
 }
-#${ROOT_ID} .pr-badge--new{ background:var(--accent); color:#ffffff; }
-#${ROOT_ID} .pr-badge--upd{ background:var(--warn); color:#ffffff; }
-#${ROOT_ID} .pr-badge--del{ background:var(--paper-3); color:var(--ink-3); }
+/* NEW=青(新着) / 更新=アンバー(変更あり) — Spira の badge--new / badge--update と同色 */
+#${ROOT_ID} .pr-badge--new{ background:var(--badge-new); color:#ffffff; }
+#${ROOT_ID} .pr-badge--upd{ background:var(--badge-upd); color:#ffffff; }
+#${ROOT_ID} .pr-badge--del{ background:var(--paper-3); color:var(--ink-3); font-weight:500; }
 /* 通知ナビバッジ(.pr-nav-item * の上書きより後に置くこと) */
 #${ROOT_ID} .pr-navbadge{
   display:inline-block !important; margin-left:var(--s-2) !important;
