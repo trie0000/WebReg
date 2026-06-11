@@ -14,11 +14,13 @@
 
   // ---------------------------------------------------------------- state
   const state = {
-    view: 'master',  // 'users'(フェーズ2) | 'master' | 'settings'
+    view: 'master',  // 'users' | 'master' | 'settings'
     l1: [],          // [{Id, Title, SortOrder, Active}]
     l2: [],          // [{Id, Title, SortOrder, Active, Level1:{Id}}]
     selectedL1: null, // Id
-    ready: false,    // マスタリストが存在するか
+    ready: false,      // マスタリストが存在するか
+    usersReady: false, // 利用者一覧リストが存在するか
+    users: [],         // 利用者一覧のアイテム
     busy: false,
   };
 
@@ -36,15 +38,20 @@
   // ---------------------------------------------------------------- data
   async function checkReady() {
     state.ready = !!(await listId(LIST_L1)) && !!(await listId(LIST_L2));
+    state.usersReady = !!(await listId(LIST_USERS));
   }
 
   async function loadAll() {
-    const [r1, r2] = await Promise.all([
+    const [r1, r2, ru] = await Promise.all([
       spGet(lt(LIST_L1) + '/items?$select=Id,Title,SortOrder,Active&$orderby=SortOrder,Id&$top=4999'),
       spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+      state.usersReady
+        ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
+        : Promise.resolve({ value: [] }),
     ]);
     state.l1 = r1.value || [];
     state.l2 = r2.value || [];
+    state.users = ru.value || [];
     if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
     if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
   }
@@ -169,11 +176,7 @@
   }
 
   function usersView() {
-    return `
-      <div class="pr-hero">
-        <h4>利用者一覧(準備中)</h4>
-        <p>権限登録リストの確認ビューはフェーズ2で実装予定です。<br>まずは「マスタ管理」で組織区分を登録してください。</p>
-      </div>`;
+    return usersViewHtml(state);
   }
 
   function settingsView() {
@@ -313,6 +316,17 @@
     }
     if (act === 'select') { state.selectedL1 = id; render(); return; }
 
+    if (act === 'user-add') {
+      const body = await openUserForm(state);
+      if (!body) return;
+      run('登録', async () => {
+        await addItem(LIST_USERS, body);
+        await reload();
+        toast('ok', '「' + body.Title + '」を登録しました');
+      });
+      return;
+    }
+
     if (act === 'sync-users') {
       const activeL1 = state.l1.filter((x) => x.Active !== false);
       const activeL1Ids = new Set(activeL1.map((x) => x.Id));
@@ -331,6 +345,7 @@
       if (!ok) return;
       run('リストへ反映', async () => {
         const s = await syncMastersToUserList(state, setStatus);
+        await reload();
         toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
           '第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));

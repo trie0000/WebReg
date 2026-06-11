@@ -102,11 +102,13 @@
         list.items.push(it);
         return json(201, { Id: it.Id });
       }
-      // GET — $expand=Level1 を含むときは Level1:{Id} 形式に整形して返す
+      // GET — 全プロパティを返し、$expand=Level1 のときは Level1:{Id} 形式も付与
       const expand = rest.includes('$expand=Level1');
-      const items = [...list.items].sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0) || a.Id - b.Id)
+      const desc = rest.includes('$orderby=Id desc');
+      const items = [...list.items].sort((a, b) => desc ? (b.Id - a.Id)
+        : ((a.SortOrder || 0) - (b.SortOrder || 0) || a.Id - b.Id))
         .map((x) => {
-          const o = { Id: x.Id, Title: x.Title, SortOrder: x.SortOrder, Active: x.Active };
+          const o = Object.assign({}, x);
           if (expand) o.Level1 = x.Level1Id ? { Id: x.Level1Id } : null;
           return o;
         });

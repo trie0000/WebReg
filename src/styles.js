@@ -208,6 +208,32 @@ const css = `
 #${ROOT_ID} .pr-kv{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
 
+/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2) ---- */
+#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); }
+#${ROOT_ID} .pr-utable th{
+  position:sticky; top:0; background:var(--paper-2); text-align:left; font-weight:600;
+  padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
+  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+}
+#${ROOT_ID} .pr-utable td{
+  padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
+  overflow-wrap:anywhere; vertical-align:top;
+}
+#${ROOT_ID} .pr-utable tbody tr:hover{ background:var(--paper-2); }
+
+/* ---- user form ---- */
+#${ROOT_ID} .pr-modal--form{ width:min(640px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
+#${ROOT_ID} .pr-req{ color:var(--danger); }
+#${ROOT_ID} .pr-checks{
+  display:flex; flex-wrap:wrap; gap:var(--s-3) var(--s-6);
+  padding:var(--s-3) var(--s-4); background:var(--paper-2); border-radius:var(--r-2); min-height:34px;
+}
+#${ROOT_ID} .pr-check{
+  display:inline-flex; align-items:center; gap:var(--s-2);
+  font-size:var(--fs-md); cursor:pointer; white-space:nowrap;
+}
+#${ROOT_ID} .pr-check input{ width:14px; height:14px; accent-color:var(--accent); cursor:pointer; margin:0; }
+
 /* ---- status bar ---- */
 #${ROOT_ID} .pr-status{
   flex:none; min-height:30px; padding:var(--s-1) var(--gutter);

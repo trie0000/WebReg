@@ -8,7 +8,7 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
-const BUILD = typeof "0.1.0-a1a24bdf" !== 'undefined' ? "0.1.0-a1a24bdf" : 'dev';
+const BUILD = typeof "0.1.0-3caed5c7" !== 'undefined' ? "0.1.0-3caed5c7" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -449,6 +449,30 @@ const css = `
 #${ROOT_ID} .pr-radio input{ accent-color:var(--accent); margin:0; }
 #${ROOT_ID} .pr-kv{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
+/* ---- users table (§7: sticky不透明ヘッダ / hover paper-2) ---- */
+#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); }
+#${ROOT_ID} .pr-utable th{
+  position:sticky; top:0; background:var(--paper-2); text-align:left; font-weight:600;
+  padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
+  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+}
+#${ROOT_ID} .pr-utable td{
+  padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
+  overflow-wrap:anywhere; vertical-align:top;
+}
+#${ROOT_ID} .pr-utable tbody tr:hover{ background:var(--paper-2); }
+/* ---- user form ---- */
+#${ROOT_ID} .pr-modal--form{ width:min(640px, 92vw); max-height:calc(100vh - 80px); overflow:auto; }
+#${ROOT_ID} .pr-req{ color:var(--danger); }
+#${ROOT_ID} .pr-checks{
+  display:flex; flex-wrap:wrap; gap:var(--s-3) var(--s-6);
+  padding:var(--s-3) var(--s-4); background:var(--paper-2); border-radius:var(--r-2); min-height:34px;
+}
+#${ROOT_ID} .pr-check{
+  display:inline-flex; align-items:center; gap:var(--s-2);
+  font-size:var(--fs-md); cursor:pointer; white-space:nowrap;
+}
+#${ROOT_ID} .pr-check input{ width:14px; height:14px; accent-color:var(--accent); cursor:pointer; margin:0; }
 /* ---- status bar ---- */
 #${ROOT_ID} .pr-status{
   flex:none; min-height:30px; padding:var(--s-1) var(--gutter);
@@ -587,6 +611,141 @@ _root.appendChild(back);
 if (input) input.select();
 });
 }
+function activeL2Of(state, l1Title) {
+const l1 = state.l1.find((x) => x.Title === l1Title && x.Active !== false);
+if (!l1) return [];
+return state.l2
+.filter((x) => x.Active !== false && x.Level1 && x.Level1.Id === l1.Id)
+.sort((a, b) => ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
+}
+function usersTableHtml(state) {
+const head = ['利用者名', '会社名', 'メールアドレス', '変更区分', '権限', '組織区分第1階層', '組織区分第2階層'];
+const l2ById = new Map(state.l2.map((x) => [x.Id, x]));
+const checkedOf = (item) => {
+const names = [];
+for (const [id, m] of l2ById) {
+if (item['L2_' + id] === true) names.push('☑' + m.Title);
+}
+return names.join('、');
+};
+const rows = state.users.map((u) => `
+    <tr>
+      <td>${esc(u.Title)}</td>
+      <td>${esc(u.Company)}</td>
+      <td>${esc(u.Email)}</td>
+      <td>${esc(u.ChangeType)}</td>
+      <td>${esc(u.Permission)}</td>
+      <td>${esc(u.OrgLevel1)}</td>
+      <td>${esc(checkedOf(u)) || '—'}</td>
+    </tr>`).join('');
+return `
+    <div class="pr-rows">
+      <table class="pr-utable">
+        <thead><tr>${head.map((h) => '<th>' + h + '</th>').join('')}</tr></thead>
+        <tbody>${rows || '<tr><td colspan="7" class="pr-empty">未登録</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+function usersViewHtml(state) {
+if (!state.usersReady) {
+return `
+      <div class="pr-hero">
+        <h4>「${esc(LIST_USERS)}」リストがまだありません</h4>
+        <p>マスタ管理で組織区分を登録し、「リストへ反映」を実行するとリストが作成されます。</p>
+        <button class="pr-btn pr-btn--primary" data-act="nav" data-view="master">マスタ管理を開く</button>
+      </div>`;
+}
+return `
+    <div class="pr-sub"><b>利用者一覧</b><span class="pr-count">${state.users.length}件</span></div>
+    <div class="pr-toolbar">
+      <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
+    </div>
+    ${usersTableHtml(state)}`;
+}
+function openUserForm(state) {
+return new Promise((resolve) => {
+const activeL1 = state.l1.filter((x) => x.Active !== false);
+const fieldRow = (label, inner) => `
+      <div class="pr-field"><label>${label}</label>${inner}</div>`;
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="利用者の新規登録">
+          <h4>利用者の新規登録</h4>
+          ${fieldRow('利用者名 <span class="pr-req">*</span>', '<input type="text" class="pr-input" id="uf-name">')}
+          ${fieldRow('会社名', '<input type="text" class="pr-input" id="uf-company">')}
+          ${fieldRow('メールアドレス', '<input type="text" class="pr-input" id="uf-email">')}
+          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${
+['新規', '変更', '削除', '変更なし'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
+          ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${
+['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
+          ${fieldRow('組織区分第1階層', `<select class="pr-input" id="uf-l1">${
+activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
+          ${fieldRow('組織区分第2階層', '<div class="pr-checks" id="uf-l2"></div>')}
+          ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">登録する</button>
+          </div>
+        </div>
+      </div>`);
+const l1Sel = back.querySelector('#uf-l1');
+const l2Box = back.querySelector('#uf-l2');
+const renderL2 = () => {
+const list = activeL2Of(state, l1Sel.value);
+l2Box.innerHTML = list.length
+? list.map((x) => `
+            <label class="pr-check"><input type="checkbox" data-l2="${x.Id}">${esc(x.Title)}</label>`).join('')
+: '<span class="pr-note">この第1階層に有効な第2階層はありません</span>';
+};
+l1Sel.addEventListener('change', renderL2);
+renderL2();
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+const ok = () => {
+const name = back.querySelector('#uf-name').value.trim();
+if (!name) {
+toast('warn', '利用者名は必須です');
+back.querySelector('#uf-name').focus();
+return;
+}
+const body = {
+Title: name,
+Company: back.querySelector('#uf-company').value.trim(),
+Email: back.querySelector('#uf-email').value.trim(),
+ChangeType: back.querySelector('#uf-changetype').value,
+Permission: back.querySelector('#uf-perm').value,
+OrgLevel1: l1Sel.value || '',
+Notes: back.querySelector('#uf-notes').value.trim(),
+};
+for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
+if (cb.checked) body['L2_' + cb.dataset.l2] = true;
+}
+done(body);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(null);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('#uf-name').focus();
+});
+}
 const CHECK_INTERVAL = 30000;
 function applyUpdate(src, ver) {
 window.__permregSource = Object.assign({}, src, { ver });
@@ -652,6 +811,8 @@ l1: [],
 l2: [],
 selectedL1: null,
 ready: false,
+usersReady: false,
+users: [],
 busy: false,
 };
 function guessWebUrl() {
@@ -666,14 +827,19 @@ return m ? m[1] : location.origin;
 setWebUrl(localStorage.getItem(LS_WEB_URL) || guessWebUrl());
 async function checkReady() {
 state.ready = !!(await listId(LIST_L1)) && !!(await listId(LIST_L2));
+state.usersReady = !!(await listId(LIST_USERS));
 }
 async function loadAll() {
-const [r1, r2] = await Promise.all([
+const [r1, r2, ru] = await Promise.all([
 spGet(lt(LIST_L1) + '/items?$select=Id,Title,SortOrder,Active&$orderby=SortOrder,Id&$top=4999'),
 spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+state.usersReady
+? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
+: Promise.resolve({ value: [] }),
 ]);
 state.l1 = r1.value || [];
 state.l2 = r2.value || [];
+state.users = ru.value || [];
 if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
 if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
 }
@@ -785,11 +951,7 @@ rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
       </div>`;
 }
 function usersView() {
-return `
-      <div class="pr-hero">
-        <h4>利用者一覧(準備中)</h4>
-        <p>権限登録リストの確認ビューはフェーズ2で実装予定です。<br>まずは「マスタ管理」で組織区分を登録してください。</p>
-      </div>`;
+return usersViewHtml(state);
 }
 function settingsView() {
 const src = (window.__permregSource && window.__permregSource.base) || '直接実行(埋め込み/開発コンソール)';
@@ -915,6 +1077,16 @@ toast('ok', 'マスタリストを作成しました');
 return;
 }
 if (act === 'select') { state.selectedL1 = id; render(); return; }
+if (act === 'user-add') {
+const body = await openUserForm(state);
+if (!body) return;
+run('登録', async () => {
+await addItem(LIST_USERS, body);
+await reload();
+toast('ok', '「' + body.Title + '」を登録しました');
+});
+return;
+}
 if (act === 'sync-users') {
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const activeL1Ids = new Set(activeL1.map((x) => x.Id));
@@ -933,6 +1105,7 @@ okLabel: '反映する',
 if (!ok) return;
 run('リストへ反映', async () => {
 const s = await syncMastersToUserList(state, setStatus);
+await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 '第1階層 ' + s.l1Count + '件 / 第2階層 ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
