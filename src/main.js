@@ -549,19 +549,24 @@
         return;
       }
       const admins = await loadAdminGroupIds();
+      if (!admins.length) {
+        // 全行の継承を解除するため、管理者グループ無しだと実行者以外は誰も全行を見られなくなる
+        toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
+          '全行の継承を解除するため、未設定だと実行者以外の管理者がアクセスできなくなります');
+        return;
+      }
       const ok = await modal({
         title: '権限を反映',
-        message: '「' + LIST_USERS + '」の各行にアクセス権を設定します: 権限グループを割当済みの' +
-          LABEL_L1 + '(' + configured.length + '件)の行は継承を解除して割当グループのみに(投稿=参照・更新可' +
-          (admins.length ? ' / 管理者グループ ' + admins.length + '件=フルコントロール' : '') +
-          ')。未割当の' + LABEL_L1 + 'の行はリストの権限を継承したままにします。' +
-          (admins.length ? '' : ' ※管理者グループが未設定です(設定→共通設定)。実行者以外の管理者は制限行を開けなくなります。'),
+        message: '「' + LIST_USERS + '」の全行(' + state.users.length + '件)の権限継承を解除し、' +
+          '既定で割り当たっているサイトの権限グループを取り除いた上で、' +
+          '管理者グループ(' + admins.length + '件)=フルコントロール / 割当グループ=投稿(参照・更新可)のみを付与します。' +
+          'グループ未割当の' + LABEL_L1 + 'の行は管理者グループのみアクセス可になります。',
         okLabel: '反映する',
       });
       if (!ok) return;
       run('権限を反映', async () => {
         const s = await applyPermissionsAll(state, setStatus);
-        toast('ok', '権限を反映しました: 固有権限 ' + s.applied + '行 / 継承 ' + s.inherited + '行');
+        toast('ok', '権限を反映しました: 割当グループ+管理者 ' + s.applied + '行 / 管理者のみ ' + s.adminOnly + '行');
         if (s.errors.length) {
           toast('err', '権限設定に失敗した行 ' + s.errors.length + '件 — 最初のエラー: ' + s.errors[0].msg);
         }

@@ -54,6 +54,9 @@
         { Id: 20, Title: 'システム管理者' },
       ] });
     }
+    if (path.startsWith('/_api/web/currentuser')) {
+      return json(200, { Id: 99, Title: '実行者' });
+    }
     if (path.startsWith('/_api/web/roledefinitions')) {
       return json(200, { value: [
         { Id: 1073741829, Name: 'フル コントロール', RoleTypeKind: 5 },
@@ -177,13 +180,30 @@
         if (idx < 0) return json(404, {});
         const it = list.items[idx];
         const sub = rest.slice(im[0].length);
-        // 行レベル権限(継承解除/復帰/ロール割当)
+        // 行レベル権限(継承解除/復帰/ロール割当)。
+        // 実機検証では copyroleassignments=false で全クリアされたが、ここでは
+        // 「既定の継承割当が残るテナント」の最悪ケースを再現し、明示削除の経路をテストする
         if (sub.startsWith('/breakroleinheritance')) {
-          it.__perm = { broken: true, assignments: [] };
+          it.__perm = { broken: true, assignments: [
+            { principalId: 3, roleDefId: 1073741829 },  // 所有者=フル(継承コピーの想定)
+            { principalId: 5, roleDefId: 1073741830 },  // メンバー=編集
+            { principalId: 6, roleDefId: 1073741826 },  // 閲覧者=読み取り
+            { principalId: 99, roleDefId: 1073741829 }, // 実行者(SPの自動付与)
+          ] };
           return json(204, null);
         }
         if (sub.startsWith('/resetroleinheritance')) {
           delete it.__perm;
+          return json(204, null);
+        }
+        if (sub.startsWith('/roleassignments?')) {
+          const as = (it.__perm && it.__perm.assignments) || [];
+          return json(200, { value: as.map((a) => ({ PrincipalId: a.principalId })) });
+        }
+        const rd = sub.match(/^\/roleassignments\/getbyprincipalid\((\d+)\)/);
+        if (rd && xm === 'DELETE') {
+          if (!it.__perm) return json(400, { 'odata.error': { message: { value: 'mock: 継承中は削除不可' } } });
+          it.__perm.assignments = it.__perm.assignments.filter((a) => a.principalId !== +rd[1]);
           return json(204, null);
         }
         const ra = sub.match(/^\/roleassignments\/addroleassignment\(principalid=(\d+),roledefid=(\d+)\)/);

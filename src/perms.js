@@ -4,9 +4,11 @@
 //   - 割当は L1 マスタの PermEdit 列(グループIDのJSON配列)に保存(全員共有)。
 //     旧版で PermRead に保存した分も読み込み時に統合する(保存時に PermEdit へ寄せる)
 //   - 管理者グループ(全行フルコントロール)は「WebReg設定」リストに保存(設定ハブから編集)
-//   - 反映: 組織区分1に設定がある行 → 継承を解除し [管理者=フル / 割当=投稿]
-//           設定が無い行 → 継承に戻す(リスト既定の権限のまま)
-//   ※ 継承解除時、実行者自身は SP の仕様でフルコントロールが自動付与される(ロックアウトしない)
+//   - 反映: 全行の継承を解除し、既定で継承されている割当(サイトの全権限グループ等)を
+//     取り除いてから [管理者=フル / 割当=投稿] のみを付与する。
+//     組織区分1にグループ未割当の行は管理者グループのみアクセス可になる
+//   ※ 継承解除時、実行者自身は SP の仕様でフルコントロールが自動付与される(ロックアウトしない)。
+//     copyroleassignments=false でもテナント挙動の差異に備え、残った割当は明示的に削除する
 
 const CONF_KEY_ADMIN_GROUPS = 'adminGroups';
 
@@ -91,21 +93,25 @@ const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).lengt
 async function buildPermContext(state) {
   const roles = await fetchPermRoles();
   const adminIds = await loadAdminGroupIds();
+  const me = await spGet('/_api/web/currentuser?$select=Id');
   const cfgByTitle = new Map();
   for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
-  return { roles, adminIds, cfgByTitle };
+  return { roles, adminIds, currentUserId: me.Id, cfgByTitle };
 }
 
-// 1アイテムへ適用。戻り値 'applied'(固有権限を設定) | 'inherit'(継承に戻した)
+// 1アイテムへ適用: 継承を解除し、既定で割り当たっていたグループを取り除いてから
+// [管理者=フル / 割当グループ=投稿] のみを付与する(未割当の組織区分1は管理者のみ)
 async function applyPermToItem(ctx, itemId, l1Title) {
   const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
   const base = lt(LIST_USERS) + '/items(' + itemId + ')';
-  if (!groupIds.length) {
-    await spPost(base + '/resetroleinheritance');
-    return 'inherit';
-  }
-  // 継承を解除して割当をクリア(実行者はSPが自動でフルコントロール付与)
   await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
+  // 既定の継承割当(サイトの全権限グループ等)が残っていても確実に外す。
+  // 実行者自身は外さない(SP が自動付与するフルコントロール。外すとロックアウトの恐れ)
+  const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
+  for (const ra of current) {
+    if (ra.PrincipalId === ctx.currentUserId) continue;
+    await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
+  }
   const assign = (gid, roleId) =>
     spPost(base + '/roleassignments/addroleassignment(principalid=' + gid + ',roledefid=' + roleId + ')');
   const done = new Set();
@@ -124,14 +130,15 @@ async function applyPermToItem(ctx, itemId, l1Title) {
 async function applyPermissionsAll(state, log) {
   const ctx = await buildPermContext(state);
   const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
-  const summary = { applied: 0, inherited: 0, errors: [] };
+  const summary = { applied: 0, adminOnly: 0, errors: [] };
   let done = 0;
   for (const it of items) {
     done++;
     log('権限を反映中… (' + done + '/' + items.length + ')');
     try {
-      const r = await applyPermToItem(ctx, it.Id, it.OrgLevel1);
-      summary[r === 'applied' ? 'applied' : 'inherited']++;
+      await applyPermToItem(ctx, it.Id, it.OrgLevel1);
+      const hasGroups = (ctx.cfgByTitle.get(it.OrgLevel1 || '') || []).length > 0;
+      summary[hasGroups ? 'applied' : 'adminOnly']++;
     } catch (e) {
       summary.errors.push({ id: it.Id, msg: e.message });
     }
