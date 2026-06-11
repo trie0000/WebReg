@@ -85,6 +85,10 @@ const css = `
 #${ROOT_ID} .pr-btn--danger{ border-color:var(--danger) !important; }
 #${ROOT_ID} .pr-btn--danger:hover{ background:var(--danger-soft) !important; filter:none !important; }
 #${ROOT_ID} .pr-btn--icon{ width:30px !important; height:30px !important; padding:0 !important; }
+#${ROOT_ID} .pr-btn--icon.is-active, #${ROOT_ID} .pr-btn--icon.is-active *{
+  color:var(--accent-strong) !important;
+}
+#${ROOT_ID} .pr-btn--icon.is-active{ background:var(--accent-soft) !important; border-color:var(--accent) !important; }
 #${ROOT_ID} .pr-btn--icon-action{
   background:var(--paper) !important; color:var(--ink-3) !important; border:1px solid var(--line) !important;
 }

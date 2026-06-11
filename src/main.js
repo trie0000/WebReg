@@ -222,6 +222,8 @@
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(getWebUrl())}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
         <button class="pr-btn pr-btn--ghost" data-act="reload">${ico('refresh-cw')}再読込</button>
+        <button class="pr-btn pr-btn--icon pr-btn--ghost${state.view === 'settings' ? ' is-active' : ''}"
+          data-act="nav" data-view="settings" aria-label="設定" title="設定(配信元 / 開発者モード)">${ico('gear')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="close" aria-label="閉じる" title="閉じる">${ico('x')}</button>
       </div>
       <div class="pr-body">
@@ -229,7 +231,6 @@
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
           ${navItem('master', 'マスタ管理', '組織区分(第1/第2階層)')}
-          ${navItem('settings', '設定', '配信元 / 開発者モード')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>

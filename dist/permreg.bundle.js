@@ -8,7 +8,7 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
-const BUILD = typeof "0.1.0-42f1500d" !== 'undefined' ? "0.1.0-42f1500d" : 'dev';
+const BUILD = typeof "0.1.0-a1a24bdf" !== 'undefined' ? "0.1.0-a1a24bdf" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -245,6 +245,7 @@ const ICONS = {
 'x': '<path d="M6 6l12 12M18 6L6 18"/>',
 'refresh-cw': '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
 'sync': '<path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/>',
+'gear': '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 'plus': '<path d="M12 5v14M5 12h14"/>',
 'copy': '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
 };
@@ -332,6 +333,10 @@ const css = `
 #${ROOT_ID} .pr-btn--danger{ border-color:var(--danger) !important; }
 #${ROOT_ID} .pr-btn--danger:hover{ background:var(--danger-soft) !important; filter:none !important; }
 #${ROOT_ID} .pr-btn--icon{ width:30px !important; height:30px !important; padding:0 !important; }
+#${ROOT_ID} .pr-btn--icon.is-active, #${ROOT_ID} .pr-btn--icon.is-active *{
+  color:var(--accent-strong) !important;
+}
+#${ROOT_ID} .pr-btn--icon.is-active{ background:var(--accent-soft) !important; border-color:var(--accent) !important; }
 #${ROOT_ID} .pr-btn--icon-action{
   background:var(--paper) !important; color:var(--ink-3) !important; border:1px solid var(--line) !important;
 }
@@ -830,6 +835,8 @@ app.innerHTML = `
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(getWebUrl())}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
         <button class="pr-btn pr-btn--ghost" data-act="reload">${ico('refresh-cw')}再読込</button>
+        <button class="pr-btn pr-btn--icon pr-btn--ghost${state.view === 'settings' ? ' is-active' : ''}"
+          data-act="nav" data-view="settings" aria-label="設定" title="設定(配信元 / 開発者モード)">${ico('gear')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="close" aria-label="閉じる" title="閉じる">${ico('x')}</button>
       </div>
       <div class="pr-body">
@@ -837,7 +844,6 @@ app.innerHTML = `
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
           ${navItem('master', 'マスタ管理', '組織区分(第1/第2階層)')}
-          ${navItem('settings', '設定', '配信元 / 開発者モード')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
