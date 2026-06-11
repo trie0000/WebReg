@@ -1,8 +1,11 @@
-// permreg ビルド: src/main.js → dist/app.js(そのまま) + dist/bookmarklet.txt + dist/install.html
+// permreg ビルド: src/main.js → dist/permreg.bundle.js + version.txt + bookmarklet.txt + install.html
+// (ファイル命名は全アプリ共通規約 <product>.bundle.js / version.txt に準拠)
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const src = fs.readFileSync(path.join(__dirname, 'src/main.js'), 'utf8');
+const pkg = require('./package.json');
 
 // esbuild があれば minify、無ければ素のまま bookmarklet 化する
 let minified = src;
@@ -14,7 +17,11 @@ try {
 }
 
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
-fs.writeFileSync(path.join(__dirname, 'dist/app.js'), src);
+fs.writeFileSync(path.join(__dirname, 'dist/permreg.bundle.js'), src);
+
+// 安定識別子: <ver>-<sha8>。buildTime を含めない(同一コミットでの更新誤検知防止)
+const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 8);
+fs.writeFileSync(path.join(__dirname, 'dist/version.txt'), pkg.version + '-' + sha + '\n');
 
 const bookmarklet = 'javascript:' + encodeURIComponent(minified);
 fs.writeFileSync(path.join(__dirname, 'dist/bookmarklet.txt'), bookmarklet);
@@ -40,5 +47,5 @@ ol li{margin:6px 0}
 `;
 fs.writeFileSync(path.join(__dirname, 'dist/install.html'), installHtml);
 
-console.log('built: dist/app.js (' + src.length + ' bytes), dist/bookmarklet.txt (' +
-  bookmarklet.length + ' bytes), dist/install.html');
+console.log('built: dist/permreg.bundle.js (' + src.length + ' bytes), dist/bookmarklet.txt (' +
+  bookmarklet.length + ' bytes), dist/install.html, version ' + pkg.version + '-' + sha);
