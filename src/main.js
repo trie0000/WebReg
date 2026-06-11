@@ -58,7 +58,8 @@
         // 列が無い場合に 400 を出さないよう $filter で照会(実機の罠: 404 ではなく 400)
         const fr = await spGet(lt(LIST_USERS) +
           "/fields?$select=TypeAsString&$filter=InternalName eq 'OrgLevel2'");
-        state.org2Mode = ((fr.value || [])[0] || {}).TypeAsString === 'Text' ? 'text' : 'calc';
+        const t = ((fr.value || [])[0] || {}).TypeAsString;
+        state.org2Mode = (t === 'Text' || t === 'Note') ? 'text' : 'calc';
       } catch {
         state.org2Mode = 'calc';
       }

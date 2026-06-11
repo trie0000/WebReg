@@ -141,13 +141,23 @@ async function syncMastersToUserList(state, log) {
   // それでも収まらない場合(1つの組織区分1に大量の組織区分2がある等)はテキスト列へ移行
   log('集計列(' + LABEL_L2 + ')を更新中…');
   const FORMULA_LIMIT = 7000;
+  // ⚠ 実機の罠: 計算式内の「文字列リテラル」は255文字まで(256文字で 500 構文エラー。
+  //   文字数ベースで日本語/ASCII同じ)。長い文字列は分割して & で連結すれば通る。
+  const LIT_MAX = 120;
+  const lit = (s) => {
+    const chunks = [];
+    for (let i = 0; i < s.length || i === 0; i += LIT_MAX) {
+      chunks.push('"' + s.slice(i, i + LIT_MAX).replace(/"/g, '""') + '"');
+    }
+    return chunks.join('&');
+  };
   const subDefs = []; // {internal, l1, formula}
   for (const l1 of activeL1) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
-    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
+    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&' + lit(displayOf(x)))
       .join('&" / "&');
-    const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
+    const allChecked = lit(kids.map((x) => '☑' + displayOf(x)).join(' / '));
     subDefs.push({
       internal: 'O2S_' + l1.Id,
       l1,
@@ -197,7 +207,7 @@ async function syncMastersToUserList(state, log) {
         }
       }
       // 過去にテキスト方式へ移行済みなら計算列に戻す(値は式で再計算されるため消失なし)
-      if (org2Type === 'Text') {
+      if (org2Type && org2Type !== 'Calculated') {
         await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
         org2Type = '';
       }
@@ -217,8 +227,9 @@ async function syncMastersToUserList(state, log) {
   }
 
   if (summary.org2Mode !== 'calc') {
-    // フォールバック: ツールが値を書き込むテキスト列へ移行
-    if (org2Type === 'Text') {
+    // フォールバック: ツールが値を書き込むテキスト列へ移行。
+    // 1行テキストは255文字までしか保存できないため複数行(Note)にする
+    if (org2Type === 'Note') {
       summary.org2Mode = 'text';
     } else {
       log(LABEL_L2 + '列をテキスト方式へ移行中…');
@@ -226,7 +237,11 @@ async function syncMastersToUserList(state, log) {
         if (org2Type) {
           await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
         }
-        await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
+        await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 3 });
+        try {
+          await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')",
+            { RichText: false });
+        } catch { /* 既定がプレーンの場合あり */ }
         try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { /* ignore */ }
         try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { /* ignore */ }
         summary.org2Mode = 'text';

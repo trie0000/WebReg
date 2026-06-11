@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-c8da75ab" !== 'undefined' ? "0.1.0-c8da75ab" : 'dev';
+const BUILD = typeof "0.1.0-4bdeb73b" !== 'undefined' ? "0.1.0-4bdeb73b" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -340,13 +340,21 @@ summary.condWarn = '条件付き表示(L2All): ' + e.message;
 }
 log('集計列(' + LABEL_L2 + ')を更新中…');
 const FORMULA_LIMIT = 7000;
+const LIT_MAX = 120;
+const lit = (s) => {
+const chunks = [];
+for (let i = 0; i < s.length || i === 0; i += LIT_MAX) {
+chunks.push('"' + s.slice(i, i + LIT_MAX).replace(/"/g, '""') + '"');
+}
+return chunks.join('&');
+};
 const subDefs = [];
 for (const l1 of activeL1) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
-const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
+const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&' + lit(displayOf(x)))
 .join('&" / "&');
-const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
+const allChecked = lit(kids.map((x) => '☑' + displayOf(x)).join(' / '));
 subDefs.push({
 internal: 'O2S_' + l1.Id,
 l1,
@@ -390,7 +398,7 @@ await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + name + "'
 } catch { }
 }
 }
-if (org2Type === 'Text') {
+if (org2Type && org2Type !== 'Calculated') {
 await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
 org2Type = '';
 }
@@ -409,7 +417,7 @@ summary.formulaWarn = e.message + '(統合式 ' + finalFormula.length + '文字)
 }
 }
 if (summary.org2Mode !== 'calc') {
-if (org2Type === 'Text') {
+if (org2Type === 'Note') {
 summary.org2Mode = 'text';
 } else {
 log(LABEL_L2 + '列をテキスト方式へ移行中…');
@@ -417,7 +425,11 @@ try {
 if (org2Type) {
 await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')");
 }
-await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 2 });
+await ensureField(LIST_USERS, 'OrgLevel2', LABEL_L2, { FieldTypeKind: 3 });
+try {
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')",
+{ RichText: false });
+} catch { }
 try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowinnewform(false)"); } catch { }
 try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')/setshowineditform(false)"); } catch { }
 summary.org2Mode = 'text';
@@ -2065,7 +2077,8 @@ if (state.usersReady) {
 try {
 const fr = await spGet(lt(LIST_USERS) +
 "/fields?$select=TypeAsString&$filter=InternalName eq 'OrgLevel2'");
-state.org2Mode = ((fr.value || [])[0] || {}).TypeAsString === 'Text' ? 'text' : 'calc';
+const t = ((fr.value || [])[0] || {}).TypeAsString;
+state.org2Mode = (t === 'Text' || t === 'Note') ? 'text' : 'calc';
 } catch {
 state.org2Mode = 'calc';
 }
