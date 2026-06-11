@@ -29,6 +29,7 @@
   // ---------------------------------------------------------------- state
   const state = {
     webUrl: '',
+    view: 'master',  // 'users'(利用者一覧・フェーズ2) | 'master'(組織区分マスタ管理)
     l1: [],          // [{Id, Title, SortOrder, Active}]
     l2: [],          // [{Id, Title, SortOrder, Active, Level1:{Id}}]
     selectedL1: null, // Id
@@ -258,7 +259,7 @@
   --topbar-h:44px;
 }
 #${ROOT_ID}{
-  position:fixed; top:0; right:0; height:100vh; width:780px; max-width:96vw;
+  position:fixed; top:0; right:0; height:100vh; width:960px; max-width:96vw;
   z-index:2147483600; display:flex; flex-direction:column;
   font-family:var(--font-sans); font-size:var(--fs-md); line-height:var(--lh-base);
   color:var(--ink); background:var(--paper);
@@ -344,6 +345,36 @@
 }
 #${ROOT_ID} .pr-input:focus{ background:var(--paper) !important; border-color:var(--line-strong) !important; }
 #${ROOT_ID} .pr-input::placeholder{ color:var(--ink-4) !important; }
+
+/* ---- side nav (master-detail / §20) ---- */
+#${ROOT_ID} .pr-body{ flex:1; display:flex; min-height:0; }
+#${ROOT_ID} .pr-side{
+  flex:none; width:200px; display:flex; flex-direction:column; gap:var(--s-1);
+  background:var(--paper-2); border-right:1px solid var(--line); padding:var(--s-5) 0;
+}
+#${ROOT_ID} .pr-side-head{
+  font-size:var(--fs-xs); color:var(--ink-3); letter-spacing:.06em;
+  padding:var(--s-2) var(--s-7) var(--s-1);
+}
+#${ROOT_ID} .pr-nav-item, #${ROOT_ID} .pr-nav-item *{
+  font-family:var(--font-sans) !important; text-align:left !important;
+  background:transparent; color:var(--ink) !important; text-decoration:none !important;
+}
+#${ROOT_ID} .pr-nav-item{
+  display:block !important; width:100%; border:none !important;
+  border-left:3px solid transparent !important; cursor:pointer !important;
+  padding:var(--s-3) var(--s-7) !important; font-size:var(--fs-md) !important;
+  background:transparent !important; line-height:var(--lh-tight) !important;
+}
+#${ROOT_ID} .pr-nav-item small{
+  display:block !important; font-size:var(--fs-xs) !important; color:var(--ink-3) !important;
+  margin-top:var(--s-1) !important; font-weight:400 !important;
+}
+#${ROOT_ID} .pr-nav-item:hover{ background:var(--paper-2-strong) !important; }
+#${ROOT_ID} .pr-nav-item.active{
+  border-left-color:var(--accent) !important; background:var(--accent-soft) !important; font-weight:600 !important;
+}
+#${ROOT_ID} .pr-main{ flex:1; display:flex; flex-direction:column; min-width:0; }
 
 /* ---- columns / list ---- */
 #${ROOT_ID} .pr-app{ flex:1; display:flex; flex-direction:column; min-height:0; }
@@ -574,16 +605,16 @@
         <button class="pr-btn pr-btn--icon pr-btn--icon-trash" data-act="del" aria-label="削除" title="削除">${ico('trash-2')}</button>
       </div>`;
 
-    let bodyHtml;
+    let masterHtml;
     if (!state.ready) {
-      bodyHtml = `
+      masterHtml = `
         <div class="pr-hero">
           <h4>マスタリストがまだありません</h4>
           <p>このサイトに「${esc(LIST_L1)}」と「${esc(LIST_L2)}」を作成します。</p>
           <button class="pr-btn pr-btn--primary" data-act="setup">${ico('plus')}初期セットアップ</button>
         </div>`;
     } else {
-      bodyHtml = `
+      masterHtml = `
         <div class="pr-cols">
           <div class="pr-col">
             <div class="pr-sub"><b>第1階層</b><span class="pr-count">${state.l1.length}件</span></div>
@@ -610,15 +641,33 @@
         </div>`;
     }
 
+    // 利用者一覧はフェーズ2(リスト確認ビュー)。メニューだけ先行して用意する
+    const usersHtml = `
+      <div class="pr-hero">
+        <h4>利用者一覧(準備中)</h4>
+        <p>権限登録リストの確認ビューはフェーズ2で実装予定です。<br>まずは「マスタ管理」で組織区分を登録してください。</p>
+      </div>`;
+
+    const mainHtml = state.view === 'users' ? usersHtml : masterHtml;
+
     app.innerHTML = `
       <div class="pr-topbar">
-        <span class="pr-title">permreg<small>組織区分マスタ管理</small></span>
+        <span class="pr-title">permreg<small>利用者権限登録 管理</small></span>
         <input type="text" class="pr-input" id="pr-weburl" style="flex:1" value="${esc(state.webUrl)}"
           aria-label="SharePoint サイトURL" title="SharePoint サイトURL">
         <button class="pr-btn pr-btn--ghost" data-act="reload">${ico('refresh-cw')}再読込</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="close" aria-label="閉じる" title="閉じる">${ico('x')}</button>
       </div>
-      ${bodyHtml}
+      <div class="pr-body">
+        <nav class="pr-side" aria-label="メニュー">
+          <div class="pr-side-head">メニュー</div>
+          <button class="pr-nav-item${state.view === 'users' ? ' active' : ''}" data-act="nav" data-view="users">
+            利用者一覧<small>登録状況の確認ビュー</small></button>
+          <button class="pr-nav-item${state.view === 'master' ? ' active' : ''}" data-act="nav" data-view="master">
+            マスタ管理<small>組織区分(第1/第2階層)</small></button>
+        </nav>
+        <div class="pr-main">${mainHtml}</div>
+      </div>
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'}</div>`;
   }
 
@@ -666,6 +715,7 @@
     const item = items && items.find((x) => x.Id === id);
 
     if (act === 'close') { root.remove(); return; }
+    if (act === 'nav') { state.view = t.dataset.view; render(); return; }
     if (act === 'reload') { run('再読込', reload); return; }
     if (act === 'setup') {
       run('セットアップ', async () => {
