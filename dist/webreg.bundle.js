@@ -24,7 +24,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-31850e7e" !== 'undefined' ? "0.1.0-31850e7e" : 'dev';
+const BUILD = typeof "0.1.0-5f7725e7" !== 'undefined' ? "0.1.0-5f7725e7" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -547,7 +547,12 @@ const css = `
 #${ROOT_ID} .pr-kv{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
 /* ---- users table (§7: sticky不透明ヘッダ / hover paper-2 / チェック列34px固定) ---- */
-#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed; }
+#${ROOT_ID} .pr-utable{
+  /* 表の自然幅 = 列幅の合計(Spira と同方式)。min-width:100% にしないことで
+     列幅変更時に他列へ再配分されず、ドラッグ量がそのまま列幅になる */
+  width:max-content; min-width:0;
+  border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed;
+}
 #${ROOT_ID} .pr-utable th{
   position:sticky; top:0; z-index:1; background:var(--paper-2); text-align:left; font-weight:600;
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
@@ -992,11 +997,14 @@ const USER_COLS = [
 { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 function userOrg2Text(state, item) {
-const names = [];
-for (const m of state.l2) {
-if (item['L2_' + m.Id] === true) names.push('☑' + m.Title);
-}
-return names.join(' / ');
+const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
+const activeL1Ids = new Set(state.l1.filter((x) => x.Active !== false).map((x) => x.Id));
+return state.l2
+.filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id))
+.sort((a, b) => (l1Order.get(a.Level1.Id) - l1Order.get(b.Level1.Id)) ||
+((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id))
+.map((m) => (item['L2_' + m.Id] === true ? '☑' : '◽') + m.Title)
+.join(' / ');
 }
 function userColLabel(c) {
 if (c.key === 'org1') return LABEL_L1;

@@ -28,12 +28,16 @@ const USER_COLS = [
   { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 
+// 集計列と同じ表現: 有効な組織区分2全件を ☑(チェック済)/◽(未チェック)で表示
 function userOrg2Text(state, item) {
-  const names = [];
-  for (const m of state.l2) {
-    if (item['L2_' + m.Id] === true) names.push('☑' + m.Title);
-  }
-  return names.join(' / ');
+  const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
+  const activeL1Ids = new Set(state.l1.filter((x) => x.Active !== false).map((x) => x.Id));
+  return state.l2
+    .filter((x) => x.Active !== false && x.Level1 && activeL1Ids.has(x.Level1.Id))
+    .sort((a, b) => (l1Order.get(a.Level1.Id) - l1Order.get(b.Level1.Id)) ||
+      ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id))
+    .map((m) => (item['L2_' + m.Id] === true ? '☑' : '◽') + m.Title)
+    .join(' / ');
 }
 
 function userColLabel(c) {

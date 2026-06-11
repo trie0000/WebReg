@@ -212,7 +212,12 @@ const css = `
 #${ROOT_ID} .pr-kv code{ font-family:var(--font-mono); color:var(--ink); background:var(--paper-2); padding:0 var(--s-2); border-radius:var(--r-2); }
 
 /* ---- users table (§7: sticky不透明ヘッダ / hover paper-2 / チェック列34px固定) ---- */
-#${ROOT_ID} .pr-utable{ width:100%; border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed; }
+#${ROOT_ID} .pr-utable{
+  /* 表の自然幅 = 列幅の合計(Spira と同方式)。min-width:100% にしないことで
+     列幅変更時に他列へ再配分されず、ドラッグ量がそのまま列幅になる */
+  width:max-content; min-width:0;
+  border-collapse:collapse; font-size:var(--fs-md); table-layout:fixed;
+}
 #${ROOT_ID} .pr-utable th{
   position:sticky; top:0; z-index:1; background:var(--paper-2); text-align:left; font-weight:600;
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line-strong);
