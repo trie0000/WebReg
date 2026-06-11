@@ -58,8 +58,9 @@ function usersViewHtml(state) {
     ${usersTableHtml(state)}`;
 }
 
-// 登録フォームモーダル。確定で item ボディ(POST 用)を resolve、キャンセルで null
-function openUserForm(state) {
+// 登録フォームモーダル。確定時に onSubmit(body) を実行し、成功で結果を resolve、
+// キャンセルで null。onSubmit が失敗してもフォームは閉じず入力値を保持する(再試行可能)。
+function openUserForm(state, onSubmit) {
   return new Promise((resolve) => {
     const activeL1 = state.l1.filter((x) => x.Active !== false);
     const fieldRow = (label, inner) => `
@@ -77,7 +78,13 @@ function openUserForm(state) {
             ['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
           ${fieldRow('組織区分第1階層', `<select class="pr-input" id="uf-l1">${
             activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
-          ${fieldRow('組織区分第2階層', '<div class="pr-checks" id="uf-l2"></div>')}
+          <div class="pr-field">
+            <div class="pr-field-row">
+              <label>組織区分第2階層</label>
+              <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
+            </div>
+            <div class="pr-checks" id="uf-l2"></div>
+          </div>
           ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
@@ -104,7 +111,7 @@ function openUserForm(state) {
       back.remove();
       resolve(val);
     };
-    const ok = () => {
+    const ok = async () => {
       const name = back.querySelector('#uf-name').value.trim();
       if (!name) {
         toast('warn', '利用者名は必須です');
@@ -123,12 +130,29 @@ function openUserForm(state) {
       for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
         if (cb.checked) body['L2_' + cb.dataset.l2] = true;
       }
-      done(body);
+      // 送信中は二重送信を防止。失敗してもフォームは閉じず、入力値を保持して再試行できる
+      const okBtn = back.querySelector('[data-mact="ok"]');
+      okBtn.disabled = true;
+      try {
+        const result = await onSubmit(body);
+        done(result === undefined ? body : result);
+      } catch (e) {
+        toast('err', '登録に失敗しました — ' + e.message);
+        okBtn.disabled = false;
+      }
     };
 
     let downOnBack = false;
     back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
     back.addEventListener('click', (e) => {
+      // すべて選択/解除トグル
+      const allBtn = e.target.closest('[data-ufact="all"]');
+      if (allBtn) {
+        const cbs = [...l2Box.querySelectorAll('input[data-l2]')];
+        const allChecked = cbs.length > 0 && cbs.every((c) => c.checked);
+        cbs.forEach((c) => { c.checked = !allChecked; });
+        return;
+      }
       if (e.target === back) {
         if (downOnBack) done(null);
         return;

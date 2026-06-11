@@ -264,12 +264,26 @@
     if (act === 'select') { state.selectedL1 = id; render(); return; }
 
     if (act === 'user-add') {
-      const body = await openUserForm(state);
-      if (!body) return;
-      run('登録', async () => {
+      const result = await openUserForm(state, async (body) => {
+        // チェックした第2階層の列がまだリストに無い場合(マスタ追加後に未反映)、
+        // 先にマスタを反映してから登録する(冪等なので安全)
+        const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
+        if (l2Keys.length) {
+          const existing = await spGet(lt(LIST_USERS) +
+            "/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
+          const have = new Set((existing.value || []).map((f) => f.InternalName));
+          if (l2Keys.some((k) => !have.has(k))) {
+            setStatus('マスタ未反映分をリストへ反映中…');
+            await syncMastersToUserList(state, setStatus);
+          }
+        }
         await addItem(LIST_USERS, body);
+        return body.Title;
+      });
+      if (!result) return;
+      run('登録', async () => {
         await reload();
-        toast('ok', '「' + body.Title + '」を登録しました');
+        toast('ok', '「' + result + '」を登録しました');
       });
       return;
     }

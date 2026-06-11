@@ -84,6 +84,8 @@ const css = `
 }
 #${ROOT_ID} .pr-btn--danger{ border-color:var(--danger) !important; }
 #${ROOT_ID} .pr-btn--danger:hover{ background:var(--danger-soft) !important; filter:none !important; }
+#${ROOT_ID} .pr-btn--sm{ height:28px !important; padding:0 var(--s-5) !important; font-size:var(--fs-sm) !important; }
+#${ROOT_ID} .pr-btn--sm *{ font-size:var(--fs-sm) !important; }
 #${ROOT_ID} .pr-btn--icon{ width:30px !important; height:30px !important; padding:0 !important; }
 #${ROOT_ID} .pr-btn--icon-action{
   background:var(--paper) !important; color:var(--ink-3) !important; border:1px solid var(--line) !important;
@@ -195,6 +197,7 @@ const css = `
 
 /* ---- settings / form 共通部品 ---- */
 #${ROOT_ID} .pr-field{ display:flex; flex-direction:column; gap:var(--s-2); }
+#${ROOT_ID} .pr-field-row{ display:flex; align-items:center; justify-content:space-between; gap:var(--s-3); }
 #${ROOT_ID} .pr-field label{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-field .pr-note{ font-size:var(--fs-xs); color:var(--ink-4); }
 #${ROOT_ID} .pr-radio{ display:flex; align-items:center; gap:var(--s-2); font-size:var(--fs-md); cursor:pointer; }

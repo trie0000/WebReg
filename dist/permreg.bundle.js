@@ -8,7 +8,7 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/permreg';
 const LIST_L1 = '組織区分第1階層マスタ';
 const LIST_L2 = '組織区分第2階層マスタ';
 const LIST_USERS = '利用者一覧';
-const BUILD = typeof "0.1.0-c928cefa" !== 'undefined' ? "0.1.0-c928cefa" : 'dev';
+const BUILD = typeof "0.1.0-5cd34009" !== 'undefined' ? "0.1.0-5cd34009" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -332,6 +332,8 @@ const css = `
 }
 #${ROOT_ID} .pr-btn--danger{ border-color:var(--danger) !important; }
 #${ROOT_ID} .pr-btn--danger:hover{ background:var(--danger-soft) !important; filter:none !important; }
+#${ROOT_ID} .pr-btn--sm{ height:28px !important; padding:0 var(--s-5) !important; font-size:var(--fs-sm) !important; }
+#${ROOT_ID} .pr-btn--sm *{ font-size:var(--fs-sm) !important; }
 #${ROOT_ID} .pr-btn--icon{ width:30px !important; height:30px !important; padding:0 !important; }
 #${ROOT_ID} .pr-btn--icon-action{
   background:var(--paper) !important; color:var(--ink-3) !important; border:1px solid var(--line) !important;
@@ -437,6 +439,7 @@ const css = `
 #${ROOT_ID} .pr-hero p{ margin:0; color:var(--ink-3); font-size:var(--fs-md); }
 /* ---- settings / form 共通部品 ---- */
 #${ROOT_ID} .pr-field{ display:flex; flex-direction:column; gap:var(--s-2); }
+#${ROOT_ID} .pr-field-row{ display:flex; align-items:center; justify-content:space-between; gap:var(--s-3); }
 #${ROOT_ID} .pr-field label{ font-size:var(--fs-sm); color:var(--ink-3); }
 #${ROOT_ID} .pr-field .pr-note{ font-size:var(--fs-xs); color:var(--ink-4); }
 #${ROOT_ID} .pr-radio{ display:flex; align-items:center; gap:var(--s-2); font-size:var(--fs-md); cursor:pointer; }
@@ -657,7 +660,7 @@ return `
     </div>
     ${usersTableHtml(state)}`;
 }
-function openUserForm(state) {
+function openUserForm(state, onSubmit) {
 return new Promise((resolve) => {
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const fieldRow = (label, inner) => `
@@ -675,7 +678,13 @@ const back = el(`
 ['参照者', '更新者'].map((c) => '<option>' + c + '</option>').join('')}</select>`)}
           ${fieldRow('組織区分第1階層', `<select class="pr-input" id="uf-l1">${
 activeL1.map((x) => '<option>' + esc(x.Title) + '</option>').join('')}</select>`)}
-          ${fieldRow('組織区分第2階層', '<div class="pr-checks" id="uf-l2"></div>')}
+          <div class="pr-field">
+            <div class="pr-field-row">
+              <label>組織区分第2階層</label>
+              <button type="button" class="pr-btn pr-btn--ghost pr-btn--sm" data-ufact="all">すべて</button>
+            </div>
+            <div class="pr-checks" id="uf-l2"></div>
+          </div>
           ${fieldRow('特記事項', '<textarea class="pr-input pr-modal-ta" id="uf-notes" rows="3"></textarea>')}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
@@ -699,7 +708,7 @@ document.removeEventListener('keydown', onKey, true);
 back.remove();
 resolve(val);
 };
-const ok = () => {
+const ok = async () => {
 const name = back.querySelector('#uf-name').value.trim();
 if (!name) {
 toast('warn', '利用者名は必須です');
@@ -718,11 +727,26 @@ Notes: back.querySelector('#uf-notes').value.trim(),
 for (const cb of l2Box.querySelectorAll('input[data-l2]')) {
 if (cb.checked) body['L2_' + cb.dataset.l2] = true;
 }
-done(body);
+const okBtn = back.querySelector('[data-mact="ok"]');
+okBtn.disabled = true;
+try {
+const result = await onSubmit(body);
+done(result === undefined ? body : result);
+} catch (e) {
+toast('err', '登録に失敗しました — ' + e.message);
+okBtn.disabled = false;
+}
 };
 let downOnBack = false;
 back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
 back.addEventListener('click', (e) => {
+const allBtn = e.target.closest('[data-ufact="all"]');
+if (allBtn) {
+const cbs = [...l2Box.querySelectorAll('input[data-l2]')];
+const allChecked = cbs.length > 0 && cbs.every((c) => c.checked);
+cbs.forEach((c) => { c.checked = !allChecked; });
+return;
+}
 if (e.target === back) {
 if (downOnBack) done(null);
 return;
@@ -1119,12 +1143,24 @@ return;
 }
 if (act === 'select') { state.selectedL1 = id; render(); return; }
 if (act === 'user-add') {
-const body = await openUserForm(state);
-if (!body) return;
-run('登録', async () => {
+const result = await openUserForm(state, async (body) => {
+const l2Keys = Object.keys(body).filter((k) => k.startsWith('L2_'));
+if (l2Keys.length) {
+const existing = await spGet(lt(LIST_USERS) +
+"/fields?$select=InternalName&$filter=startswith(InternalName,'L2_')");
+const have = new Set((existing.value || []).map((f) => f.InternalName));
+if (l2Keys.some((k) => !have.has(k))) {
+setStatus('マスタ未反映分をリストへ反映中…');
+await syncMastersToUserList(state, setStatus);
+}
+}
 await addItem(LIST_USERS, body);
+return body.Title;
+});
+if (!result) return;
+run('登録', async () => {
 await reload();
-toast('ok', '「' + body.Title + '」を登録しました');
+toast('ok', '「' + result + '」を登録しました');
 });
 return;
 }
