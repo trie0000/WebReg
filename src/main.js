@@ -233,7 +233,7 @@
       // 2) 列・選択肢・集計式を反映(部分的な失敗は警告にして取込を続行)
       setStatus('マスタをリストへ反映中…');
       const sres = await syncMastersToUserList(state, setStatus);
-      if (sres.formulaWarn) toast('warn', '集計列の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
+      if (sres.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
       if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
       if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
       // 取込権限(閲覧者など)が選択肢に無ければ追加
@@ -496,6 +496,8 @@
           LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
         if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
+        if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
+        if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
       });
       return;
     }

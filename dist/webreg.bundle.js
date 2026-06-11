@@ -41,7 +41,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-d9864c7e" !== 'undefined' ? "0.1.0-d9864c7e" : 'dev';
+const BUILD = typeof "0.1.0-ab197940" !== 'undefined' ? "0.1.0-ab197940" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -339,29 +339,26 @@ await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('L2All')",
 summary.condWarn = '条件付き表示(L2All): ' + e.message;
 }
 log('集計列(' + LABEL_L2 + ')を更新中…');
-let expr = '""';
-for (const l1 of [...activeL1].reverse()) {
+const terms = [];
+for (const l1 of activeL1) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
 const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
 .join('&" / "&');
 const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
-const branch = 'IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')';
-expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
+terms.push('IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) +
+'",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
 }
-const formula = '=' + expr;
+const formula = terms.length ? '=' + terms.join('&') : '=""';
 try {
 if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
-activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
 const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
-" ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
-'<FieldRefs>' + refs + '</FieldRefs></Field>';
+" ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
+"<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
 await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
-} else {
-await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
 }
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
 } catch (e) {
 summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
 }
@@ -2147,7 +2144,7 @@ await loadAll();
 }
 setStatus('マスタをリストへ反映中…');
 const sres = await syncMastersToUserList(state, setStatus);
-if (sres.formulaWarn) toast('warn', '集計列の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
+if (sres.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました(取込は継続) — ' + sres.formulaWarn);
 if (sres.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました(取込は継続) — ' + sres.condWarn);
 if (sres.orderWarn) toast('warn', '列の並び替えに失敗しました(取込は継続) — ' + sres.orderWarn);
 const needPerms = [...new Set(plan.targets.map((t) => t.permission))]
@@ -2388,6 +2385,8 @@ toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
 if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
+if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
+if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
 });
 return;
 }

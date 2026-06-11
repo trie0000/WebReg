@@ -135,29 +135,31 @@ async function syncMastersToUserList(state, log) {
   // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
   log('集計列(' + LABEL_L2 + ')を更新中…');
-  let expr = '""';
-  for (const l1 of [...activeL1].reverse()) {
+  // 組織区分1ごとの分岐は「ネストIF」ではなく相互排他なIFの連結にする。
+  // ネストだと組織区分1の数だけ入れ子が深くなり、SPのIF入れ子上限(約19)で
+  // 式の作成が失敗する(組織数の多い実データで顕在化)。連結なら深さは常に一定
+  const terms = [];
+  for (const l1 of activeL1) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
     const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&"' + displayOf(x) + '"')
       .join('&" / "&');
     const allChecked = '"' + kids.map((x) => '☑' + displayOf(x)).join(' / ') + '"';
-    const branch = 'IF([組織区分2のすべて],' + allChecked + ',' + perCheck + ')';
-    expr = 'IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) + '",' + branch + ',' + expr + ')';
+    terms.push('IF([' + LABEL_L1 + ']="' + safeTitle(l1.Title) +
+      '",IF([組織区分2のすべて],' + allChecked + ',' + perCheck + '),"")');
   }
-  const formula = '=' + expr;
+  const formula = terms.length ? '=' + terms.join('&') : '=""';
+  // 列は必ず存在させる: まず空の式で作成し、その後に本式へ更新する。
+  // 式の更新に失敗しても列自体は残り、エラーは警告として報告される
   try {
     if (!(await fieldExists(LIST_USERS, 'OrgLevel2'))) {
-      const refs = "<FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/>" +
-        activeL2.map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
       const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
-        " ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(formula) + '</Formula>' +
-        '<FieldRefs>' + refs + '</FieldRefs></Field>';
+        " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula>" +
+        "<FieldRefs><FieldRef Name='OrgLevel1'/><FieldRef Name='L2All'/></FieldRefs></Field>";
       await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
       await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2 });
-    } else {
-      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
     }
+    await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: LABEL_L2, Formula: formula });
   } catch (e) {
     // 組織数が多く式が上限を超える場合など。集計列が古いままでも反映自体は続行する
     summary.formulaWarn = e.message + '(式の長さ ' + formula.length + '文字)';
