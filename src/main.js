@@ -258,6 +258,8 @@ import { startUpdateWatcher } from './updater.js';
 
   app.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter') return;
+    // IME 変換確定の Enter で入力を確定させない(keyCode 229 は古い Chrome/Safari 対策)
+    if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.target.id === 'pr-add-l1') app.querySelector('[data-act="add-l1"]').click();
     if (ev.target.id === 'pr-add-l2') app.querySelector('[data-act="add-l2"]').click();
   });

@@ -84,6 +84,8 @@ export function modal({ title, message, inputValue, okLabel, danger }) {
       if (b) (b.dataset.mact === 'ok' ? ok() : cancel());
     });
     const onKey = (e) => {
+      // IME 変換確定の Enter で確定させない(keyCode 229 は古い Chrome/Safari 対策)
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
       else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (hasInput && e.target === input))) ok();
     };
