@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-9845b41f" !== 'undefined' ? "0.1.0-9845b41f" : 'dev';
+const BUILD = typeof "0.1.0-4eea4838" !== 'undefined' ? "0.1.0-4eea4838" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1505,6 +1505,8 @@ return `
            <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
 : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-export" title="${esc(LABEL_L1)}を選んで現在の登録状況を .xlsx で出力">Excel出力</button>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import-xlsx" title="Excel出力と同じ形式のファイルから追加・更新・論理削除を取込">Excel取込</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
       <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="user-add">${ico('plus')}新規登録</button>
     </div>
@@ -2207,6 +2209,526 @@ document.body.appendChild(inp);
 inp.click();
 });
 }
+const XLSX_CRC_TABLE = (() => {
+const t = new Uint32Array(256);
+for (let n = 0; n < 256; n++) {
+let c = n;
+for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+t[n] = c >>> 0;
+}
+return t;
+})();
+function xlsxCrc32(bytes) {
+let c = 0xFFFFFFFF;
+for (let i = 0; i < bytes.length; i++) c = XLSX_CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+return (c ^ 0xFFFFFFFF) >>> 0;
+}
+const xlsxXmlEsc = (s) => String(s == null ? '' : s)
+.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+.replace(/"/g, '&quot;')
+.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+function xlsxColName(i) {
+let s = '';
+i++;
+while (i > 0) {
+const m = (i - 1) % 26;
+s = String.fromCharCode(65 + m) + s;
+i = (i - 1 - m) / 26;
+}
+return s;
+}
+function xlsxBuild(sheets) {
+const enc = new TextEncoder();
+const sheetXml = (rows) => {
+const rowsXml = rows.map((cells, ri) => {
+const cellsXml = cells.map((v, ci) => {
+const ref = xlsxColName(ci) + (ri + 1);
+if (typeof v === 'number' && isFinite(v)) {
+return '<c r="' + ref + '"><v>' + v + '</v></c>';
+}
+const s = String(v == null ? '' : v);
+if (s === '') return '';
+return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xlsxXmlEsc(s) + '</t></is></c>';
+}).join('');
+return '<row r="' + (ri + 1) + '">' + cellsXml + '</row>';
+}).join('');
+return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+'<sheetData>' + rowsXml + '</sheetData></worksheet>';
+};
+const files = [];
+files.push(['[Content_Types].xml',
+'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+'<Default Extension="xml" ContentType="application/xml"/>' +
+'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+sheets.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) +
+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+'</Types>']);
+files.push(['_rels/.rels',
+'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+'</Relationships>']);
+files.push(['xl/workbook.xml',
+'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"' +
+' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+sheets.map((sh, i) => '<sheet name="' + xlsxXmlEsc(sh.name) + '" sheetId="' + (i + 1) +
+'" r:id="rId' + (i + 1) + '"/>').join('') +
+'</sheets></workbook>']);
+files.push(['xl/_rels/workbook.xml.rels',
+'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+sheets.map((_, i) => '<Relationship Id="rId' + (i + 1) +
+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+'</Relationships>']);
+sheets.forEach((sh, i) => files.push(['xl/worksheets/sheet' + (i + 1) + '.xml', sheetXml(sh.rows)]));
+const parts = [];
+const central = [];
+let offset = 0;
+const num16 = (n) => [n & 0xFF, (n >>> 8) & 0xFF];
+const num32 = (n) => [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF];
+for (const [name, xml] of files) {
+const nameB = enc.encode(name);
+const data = enc.encode(xml);
+const crc = xlsxCrc32(data);
+const head = new Uint8Array([
+0x50, 0x4B, 0x03, 0x04, ...num16(20), ...num16(0x0800), ...num16(0), ...num16(0), ...num16(0),
+...num32(crc), ...num32(data.length), ...num32(data.length), ...num16(nameB.length), ...num16(0),
+]);
+central.push(new Uint8Array([
+0x50, 0x4B, 0x01, 0x02, ...num16(20), ...num16(20), ...num16(0x0800), ...num16(0), ...num16(0), ...num16(0),
+...num32(crc), ...num32(data.length), ...num32(data.length), ...num16(nameB.length), ...num16(0), ...num16(0),
+...num16(0), ...num16(0), ...num32(0), ...num32(offset),
+]), nameB);
+parts.push(head, nameB, data);
+offset += head.length + nameB.length + data.length;
+}
+const centralStart = offset;
+let centralLen = 0;
+for (const c of central) { parts.push(c); centralLen += c.length; }
+parts.push(new Uint8Array([
+0x50, 0x4B, 0x05, 0x06, ...num16(0), ...num16(0), ...num16(files.length), ...num16(files.length),
+...num32(centralLen), ...num32(centralStart), ...num16(0),
+]));
+return new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function xlsxUnzip(buf) {
+const u8 = new Uint8Array(buf);
+const dv = new DataView(buf);
+let eocd = -1;
+for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65558); i--) {
+if (u8[i] === 0x50 && u8[i + 1] === 0x4B && u8[i + 2] === 0x05 && u8[i + 3] === 0x06) { eocd = i; break; }
+}
+if (eocd < 0) throw new Error('xlsx(ZIP)形式ではありません');
+const count = dv.getUint16(eocd + 10, true);
+let p = dv.getUint32(eocd + 16, true);
+const dec = new TextDecoder();
+const out = new Map();
+for (let n = 0; n < count; n++) {
+if (dv.getUint32(p, true) !== 0x02014B50) throw new Error('ZIP セントラルディレクトリが壊れています');
+const method = dv.getUint16(p + 10, true);
+const csize = dv.getUint32(p + 20, true);
+const nameLen = dv.getUint16(p + 28, true);
+const extraLen = dv.getUint16(p + 30, true);
+const cmtLen = dv.getUint16(p + 32, true);
+const lho = dv.getUint32(p + 42, true);
+const name = dec.decode(u8.subarray(p + 46, p + 46 + nameLen));
+const lNameLen = dv.getUint16(lho + 26, true);
+const lExtraLen = dv.getUint16(lho + 28, true);
+const start = lho + 30 + lNameLen + lExtraLen;
+const raw = u8.subarray(start, start + csize);
+let data;
+if (method === 0) {
+data = raw;
+} else if (method === 8) {
+if (typeof DecompressionStream === 'undefined') {
+throw new Error('このブラウザは圧縮された xlsx の展開に対応していません(DecompressionStream 非対応)');
+}
+const ds = new DecompressionStream('deflate-raw');
+const stream = new Blob([raw]).stream().pipeThrough(ds);
+data = new Uint8Array(await new Response(stream).arrayBuffer());
+} else {
+throw new Error('未対応の ZIP 圧縮方式: ' + method);
+}
+out.set(name, data);
+p += 46 + nameLen + extraLen + cmtLen;
+}
+return out;
+}
+const xlsxParseXml = (bytes) => {
+const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'application/xml');
+if (doc.querySelector('parsererror')) throw new Error('xlsx 内の XML を解析できません');
+return doc;
+};
+function xlsxColIndex(ref) {
+let c = 0;
+for (const ch of ref) {
+if (ch < 'A' || ch > 'Z') break;
+c = c * 26 + (ch.charCodeAt(0) - 64);
+}
+return c - 1;
+}
+async function xlsxParse(buf) {
+const files = await xlsxUnzip(buf);
+if (!files.has('xl/workbook.xml')) throw new Error('xlsx ではありません(workbook.xml 無し)');
+const wb = xlsxParseXml(files.get('xl/workbook.xml'));
+const rels = files.has('xl/_rels/workbook.xml.rels')
+? xlsxParseXml(files.get('xl/_rels/workbook.xml.rels')) : null;
+const relMap = new Map();
+if (rels) {
+for (const r of rels.getElementsByTagName('*')) {
+if (r.localName === 'Relationship') {
+relMap.set(r.getAttribute('Id'), r.getAttribute('Target').replace(/^\//, ''));
+}
+}
+}
+const shared = [];
+if (files.has('xl/sharedStrings.xml')) {
+const ss = xlsxParseXml(files.get('xl/sharedStrings.xml'));
+for (const si of ss.getElementsByTagName('*')) {
+if (si.localName !== 'si') continue;
+let s = '';
+for (const t of si.getElementsByTagName('*')) if (t.localName === 't') s += t.textContent;
+shared.push(s);
+}
+}
+const sheets = [];
+let idx = 0;
+for (const el of wb.getElementsByTagName('*')) {
+if (el.localName !== 'sheet') continue;
+idx++;
+const rid = el.getAttribute('r:id') || el.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+let target = (rid && relMap.get(rid)) || ('worksheets/sheet' + idx + '.xml');
+if (!target.startsWith('xl/')) target = 'xl/' + target;
+if (!files.has(target)) continue;
+const doc = xlsxParseXml(files.get(target));
+const rows = [];
+for (const rowEl of doc.getElementsByTagName('*')) {
+if (rowEl.localName !== 'row') continue;
+const ri = (parseInt(rowEl.getAttribute('r'), 10) || (rows.length + 1)) - 1;
+const row = [];
+let autoCol = 0;
+for (const c of rowEl.children) {
+if (c.localName !== 'c') continue;
+const ref = c.getAttribute('r');
+const ci = ref ? xlsxColIndex(ref) : autoCol;
+autoCol = ci + 1;
+const t = c.getAttribute('t') || '';
+let v = '';
+if (t === 'inlineStr') {
+for (const tEl of c.getElementsByTagName('*')) if (tEl.localName === 't') v += tEl.textContent;
+} else {
+let vEl = null;
+for (const ch of c.children) if (ch.localName === 'v') vEl = ch;
+const raw = vEl ? vEl.textContent : '';
+if (t === 's') v = shared[parseInt(raw, 10)] || '';
+else if (t === 'b') v = raw === '1' ? '1' : '0';
+else v = raw;
+}
+row[ci] = v;
+}
+for (let i = 0; i < row.length; i++) if (row[i] == null) row[i] = '';
+rows[ri] = row;
+}
+for (let i = 0; i < rows.length; i++) if (!rows[i]) rows[i] = [];
+sheets.push({ name: el.getAttribute('name') || ('Sheet' + idx), rows });
+}
+return sheets;
+}
+const XLSX_SHEET_DATA = '利用者一覧';
+const XLSX_SHEET_META = 'エクスポート情報';
+const XLSX_META_SCOPE = 'エクスポート範囲(組織区分1)';
+const XLSX_SCOPE_SEP = '／';
+const XLSX_HEADERS = ['ID', '利用者名', '会社名', 'メールアドレス', '変更区分', '権限',
+LABEL_L1, LABEL_L2 + '(全角カンマ区切り)', LABEL_L2 + 'のすべて(1=すべて)',
+'特記事項', 'システム削除(1=削除)', '更新日時(参考・取込時は無視)'];
+function xlsxExportRows(state, l1Titles) {
+const scope = new Set(l1Titles);
+const rows = [XLSX_HEADERS.slice()];
+const users = state.users.filter((u) => scope.has(u.OrgLevel1 || ''));
+const orderOf = new Map(state.l1.map((x, i) => [x.Title, i]));
+users.sort((a, b) => (orderOf.get(a.OrgLevel1) ?? 999) - (orderOf.get(b.OrgLevel1) ?? 999) || a.Id - b.Id);
+for (const u of users) {
+const l2names = activeL2Of(state, u.OrgLevel1 || '')
+.filter((m) => u['L2_' + m.Id] === true).map((m) => m.Title);
+rows.push([
+u.Id,
+u.Title || '',
+u.Company || '',
+u.Email || '',
+u.ChangeType || '',
+u.Permission || '',
+u.OrgLevel1 || '',
+l2names.join('，'),
+u.L2All === true ? 1 : '',
+u.Notes || '',
+u.SystemDeleted === true ? 1 : '',
+u.Modified ? new Date(u.Modified).toLocaleString('ja-JP') : '',
+]);
+}
+return rows;
+}
+function xlsxDownload(blob, filename) {
+const a = document.createElement('a');
+a.href = URL.createObjectURL(blob);
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function openExportModal(state) {
+return new Promise((resolve) => {
+const counts = new Map();
+for (const u of state.users) {
+const k = u.OrgLevel1 || '';
+counts.set(k, (counts.get(k) || 0) + 1);
+}
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelエクスポート">
+          <h4>Excelエクスポート</h4>
+          <span class="pr-note">出力する${esc(LABEL_L1)}を選択してください(複数可)。同じファイルを編集して
+            「Excelインポート」で取り込むと、追加・更新・削除(論理削除)を反映できます。</span>
+          <div class="pr-field">
+            <label><label class="pr-check" style="display:inline-flex">
+              <input type="checkbox" data-xall checked>すべて選択</label></label>
+            <div class="pr-checks pr-checks--perm">
+              ${state.l1.map((x) => `
+                <label class="pr-check"><input type="checkbox" data-xl1 value="${esc(x.Title)}" checked>
+                  ${esc(x.Title)}<span class="pr-childcount">${counts.get(x.Title) || 0}</span></label>`).join('') ||
+'<span class="pr-note">マスタ未登録</span>'}
+            </div>
+          </div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">エクスポート</button>
+          </div>
+        </div>
+      </div>`);
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+const picked = () => [...back.querySelectorAll('input[data-xl1]:checked')].map((x) => x.value);
+const ok = () => {
+const titles = picked();
+if (!titles.length) {
+toast('warn', LABEL_L1 + 'を1件以上選択してください');
+return;
+}
+done(titles);
+};
+back.querySelector('[data-xall]').addEventListener('change', (e) => {
+back.querySelectorAll('input[data-xl1]').forEach((c) => { c.checked = e.target.checked; });
+});
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(null);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('[data-mact="ok"]').focus();
+});
+}
+function buildExportXlsx(state, l1Titles) {
+const now = new Date();
+const pad = (n) => String(n).padStart(2, '0');
+const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
+'-' + pad(now.getHours()) + pad(now.getMinutes());
+const blob = xlsxBuild([
+{ name: XLSX_SHEET_DATA, rows: xlsxExportRows(state, l1Titles) },
+{ name: XLSX_SHEET_META, rows: [
+[XLSX_META_SCOPE, l1Titles.join(XLSX_SCOPE_SEP)],
+['エクスポート日時', now.toLocaleString('ja-JP')],
+['リスト', LIST_USERS],
+['形式バージョン', 1],
+] },
+]);
+return { blob, filename: LIST_USERS + '_' + stamp + '.xlsx' };
+}
+function pickXlsxFile() {
+return new Promise((resolve) => {
+const inp = document.createElement('input');
+inp.type = 'file';
+inp.accept = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+inp.style.display = 'none';
+let settled = false;
+const settle = (v) => { if (!settled) { settled = true; resolve(v); inp.remove(); } };
+inp.addEventListener('change', () => settle(inp.files && inp.files[0] ? inp.files[0] : null));
+window.addEventListener('focus', () => setTimeout(() => settle(null), 500), { once: true });
+document.body.appendChild(inp);
+inp.click();
+});
+}
+const xlsxCell = (row, i) => String((row || [])[i] == null ? '' : row[i]).trim();
+const xlsxFlag = (s) => s === '1' || s === '1.0' || /^true$/i.test(s);
+function buildXlsxImportPlan(state, sheets) {
+const data = sheets.find((sh) => sh.name === XLSX_SHEET_DATA) ||
+sheets.find((sh) => (sh.rows[0] || [])[0] === 'ID');
+if (!data || !data.rows.length) throw new Error('シート「' + XLSX_SHEET_DATA + '」が見つかりません');
+const header = data.rows[0].map((h) => String(h || '').trim());
+if (header[0] !== 'ID' || header[1] !== XLSX_HEADERS[1]) {
+throw new Error('ヘッダーが想定と異なります(このツールのエクスポート形式のみ取込可能)');
+}
+const meta = sheets.find((sh) => sh.name === XLSX_SHEET_META);
+let scope = [];
+if (meta) {
+const row = meta.rows.find((r) => String((r || [])[0]) === XLSX_META_SCOPE);
+if (row) scope = String(row[1] || '').split(XLSX_SCOPE_SEP).map((s) => s.trim()).filter(Boolean);
+}
+const entries = [];
+let skipped = 0;
+for (const r of data.rows.slice(1)) {
+const name = xlsxCell(r, 1);
+const idRaw = xlsxCell(r, 0).replace(/\.0$/, '');
+if (!name) { if (idRaw || r.some((v) => String(v || '').trim() !== '')) skipped++; continue; }
+entries.push({
+id: /^\d+$/.test(idRaw) ? +idRaw : null,
+name,
+company: xlsxCell(r, 2),
+email: xlsxCell(r, 3),
+changeType: xlsxCell(r, 4),
+permission: xlsxCell(r, 5),
+org1: xlsxCell(r, 6),
+org2names: xlsxCell(r, 7).split(/[，、,]/).map((x) => x.trim()).filter(Boolean),
+l2all: xlsxFlag(xlsxCell(r, 8)),
+notes: xlsxCell(r, 9),
+sysdel: xlsxFlag(xlsxCell(r, 10)),
+});
+}
+if (!entries.length) throw new Error('取込対象の行がありません');
+const scopeSet = new Set(scope.concat(entries.map((e) => e.org1).filter(Boolean)));
+const l1Titles = new Set(state.l1.map((x) => x.Title));
+const l2Keys = new Set(state.l2.filter((x) => x.Level1).map((x) => {
+const l1 = state.l1.find((y) => y.Id === x.Level1.Id);
+return (l1 ? l1.Title : '') + ' ' + x.Title;
+}));
+const missingL1 = [];
+const missingL2 = [];
+for (const e of entries) {
+if (e.org1 && !l1Titles.has(e.org1) && !missingL1.includes(e.org1)) missingL1.push(e.org1);
+for (const nm of e.org2names) {
+const key = e.org1 + ' ' + nm;
+if (!l2Keys.has(key)) {
+l2Keys.add(key);
+missingL2.push({ l1: e.org1, name: nm });
+}
+}
+}
+const byId = new Map(state.users.map((u) => [u.Id, u]));
+const fileIds = new Set(entries.map((e) => e.id).filter((x) => x != null));
+const adds = entries.filter((e) => e.id == null || !byId.has(e.id));
+const updates = entries.filter((e) => e.id != null && byId.has(e.id));
+const deletes = state.users.filter((u) =>
+scopeSet.has(u.OrgLevel1 || '') && u.SystemDeleted !== true && !fileIds.has(u.Id));
+return { entries, scope: [...scopeSet], adds, updates, deletes, missingL1, missingL2, skipped };
+}
+function buildXlsxBody(state, e, existing) {
+const body = {
+Title: e.name,
+Company: e.company,
+Email: e.email,
+ChangeType: e.changeType || '変更なし',
+Permission: e.permission,
+OrgLevel1: e.org1,
+Notes: e.notes,
+SystemDeleted: e.sysdel,
+L2All: e.l2all,
+};
+const l1 = state.l1.find((x) => x.Title === e.org1);
+if (l1) {
+for (const nm of e.org2names) {
+const m = state.l2.find((x) => x.Level1 && x.Level1.Id === l1.Id && x.Title === nm);
+if (m) body['L2_' + m.Id] = true;
+}
+}
+if (existing) {
+for (const k of Object.keys(existing)) {
+if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false;
+}
+}
+return body;
+}
+function xlsxRowChanged(state, e, u) {
+const body = buildXlsxBody(state, e, u);
+for (const [k, v] of Object.entries(body)) {
+const cur = k.startsWith('L2_') || k === 'L2All' || k === 'SystemDeleted'
+? u[k] === true : (u[k] || '');
+const next = typeof v === 'boolean' ? v : (v || '');
+if (cur !== next) return true;
+}
+return false;
+}
+function openXlsxConfirmModal(plan, changedCount) {
+return new Promise((resolve) => {
+const names = (list, f) => list.slice(0, 5).map(f).map(esc).join('、') + (list.length > 5 ? ' ほか' : '');
+const missing = plan.missingL1.map((t) => esc(LABEL_L1) + ': ' + esc(t))
+.concat(plan.missingL2.map((m) => esc(LABEL_L2) + ': ' + esc(m.name) + '(' + esc(m.l1) + ')'));
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
+          <h4>Excelインポートの確認</h4>
+          <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changedCount}件</code>
+            (変更なし ${plan.updates.length - changedCount}件はスキップ) /
+            論理削除 <code>${plan.deletes.length}件</code>
+            ${plan.skipped ? ' / 利用者名が空の行 ' + plan.skipped + '件は無視' : ''}</div>
+          ${plan.adds.length ? `<span class="pr-note">追加: ${names(plan.adds, (x) => x.name)}</span>` : ''}
+          ${plan.deletes.length ? `<span class="pr-note">論理削除(ファイルに無い行。システム削除=ONになります):
+            ${names(plan.deletes, (x) => x.Title)}</span>` : ''}
+          <span class="pr-note">削除判定の範囲(${esc(LABEL_L1)}): ${esc(plan.scope.join(' / '))}</span>
+          ${missing.length ? `
+          <div class="pr-field">
+            <label>マスタ未登録の組織(OK でマスタへ自動登録してから取り込みます)</label>
+            <div class="pr-checks" style="display:block; max-height:140px; overflow:auto;">
+              ${missing.map((m) => '<div>' + m + '</div>').join('')}
+            </div>
+          </div>` : ''}
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">取り込む</button>
+          </div>
+        </div>
+      </div>`);
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(false);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) done(b.dataset.mact === 'ok');
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) done(true);
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('[data-mact="ok"]').focus();
+});
+}
 const CHECK_INTERVAL = 30000;
 function applyUpdate(src, ver) {
 window.__webregSource = Object.assign({}, src, { ver });
@@ -2533,6 +3055,113 @@ rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? '
 }
 });
 }
+async function userExportFlow() {
+if (!state.users.length) {
+toast('warn', 'エクスポートできる利用者がいません');
+return;
+}
+const titles = await openExportModal(state);
+if (!titles) return;
+const { blob, filename } = buildExportXlsx(state, titles);
+const count = state.users.filter((u) => titles.includes(u.OrgLevel1 || '')).length;
+xlsxDownload(blob, filename);
+toast('ok', filename + ' を出力しました(' + count + '件)');
+}
+async function userImportXlsxFlow(testBuf) {
+let buf = testBuf;
+if (!buf) {
+const file = await pickXlsxFile();
+if (!file) return;
+buf = await file.arrayBuffer();
+}
+let plan;
+try {
+plan = buildXlsxImportPlan(state, await xlsxParse(buf));
+} catch (e) {
+toast('err', 'Excelファイルの解析に失敗しました — ' + e.message);
+return;
+}
+const byId = new Map(state.users.map((u) => [u.Id, u]));
+const changed = plan.updates.filter((e) => xlsxRowChanged(state, e, byId.get(e.id)));
+if (!plan.adds.length && !changed.length && !plan.deletes.length) {
+toast('ok', '変更はありません(リストとファイルの内容は一致しています)');
+return;
+}
+const ok = await openXlsxConfirmModal(plan, changed.length);
+if (!ok) return;
+run('Excelインポート', async () => {
+if (plan.missingL1.length || plan.missingL2.length) {
+setStatus('未登録マスタを登録中…');
+let order1 = nextOrder(state.l1);
+for (const t of plan.missingL1) {
+await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+order1 += 10;
+}
+if (plan.missingL1.length) await loadAll();
+for (const m of plan.missingL2) {
+const l1 = state.l1.find((x) => x.Title === m.l1);
+if (!l1) continue;
+const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
+await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+await loadAll();
+}
+setStatus('マスタをリストへ反映中…');
+const sres = await syncMastersToUserList(state, setStatus);
+if (sres.org2Mode) state.org2Mode = sres.org2Mode;
+}
+const needCt = [...new Set(plan.entries.map((e) => e.changeType).filter(Boolean))]
+.filter((v) => !state.choices.changeType.includes(v));
+if (needCt.length) {
+const merged = state.choices.changeType.concat(needCt);
+await setChoices(LIST_USERS, 'ChangeType', '変更区分', merged, true);
+state.choices.changeType = merged;
+}
+const needPm = [...new Set(plan.entries.map((e) => e.permission).filter(Boolean))]
+.filter((v) => !state.choices.permission.includes(v));
+if (needPm.length) {
+const merged = state.choices.permission.concat(needPm);
+await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
+state.choices.permission = merged;
+}
+const total = plan.adds.length + changed.length + plan.deletes.length;
+let done = 0;
+const rowErrors = [];
+const step = () => setStatus('Excelを取込中… (' + (++done) + '/' + total + ')');
+for (const e of plan.adds) {
+step();
+try {
+await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+} catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
+}
+for (const e of changed) {
+step();
+try {
+const u = byId.get(e.id);
+await updateItem(LIST_USERS, e.id, withOrg2Text(buildXlsxBody(state, e, u), u));
+} catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
+}
+for (const u of plan.deletes) {
+step();
+try {
+await updateItem(LIST_USERS, u.Id, { SystemDeleted: true });
+} catch (err) { rowErrors.push({ name: u.Title, msg: err.message }); }
+}
+await reload();
+if (hasAnyPermConfig(state)) {
+const ps = await applyPermissionsAll(state, setStatus);
+if (ps.errors.length) {
+toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+}
+}
+toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
+'件 / 論理削除 ' + plan.deletes.length + '件');
+if (rowErrors.length) {
+toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
+rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
+' — 最初のエラー: ' + rowErrors[0].msg);
+}
+});
+}
 async function userBulkFlow() {
 const ids = [...selectedUserIds];
 if (!ids.length) return;
@@ -2709,6 +3338,8 @@ return;
 if (act === 'select') { state.selectedL1 = id; render(); return; }
 if (act === 'user-add') { userAddFlow(); return; }
 if (act === 'user-import') { userImportFlow(); return; }
+if (act === 'user-export') { userExportFlow(); return; }
+if (act === 'user-import-xlsx') { userImportXlsxFlow(); return; }
 if (act === 'user-bulk') { userBulkFlow(); return; }
 if (act === 'user-del-selected') { userDeleteFlow(); return; }
 if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -2878,7 +3509,13 @@ await syncMastersToUserList(state, setStatus);
 });
 render();
 run('読込', reload);
-window.__webreg = { state, build: BUILD, importCsvText: (t) => userImportFlow(t) };
+window.__webreg = {
+state,
+build: BUILD,
+importCsvText: (t) => userImportFlow(t),
+exportXlsx: (titles) => buildExportXlsx(state, titles),
+importXlsx: (buf) => userImportXlsxFlow(buf),
+};
 startUpdateWatcher(BUILD);
 if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
 const pollUsers = async () => {

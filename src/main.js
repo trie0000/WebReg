@@ -313,6 +313,121 @@
     });
   }
 
+  // Excel エクスポート(組織区分1を複数選択して .xlsx 保存)
+  async function userExportFlow() {
+    if (!state.users.length) {
+      toast('warn', 'エクスポートできる利用者がいません');
+      return;
+    }
+    const titles = await openExportModal(state);
+    if (!titles) return;
+    const { blob, filename } = buildExportXlsx(state, titles);
+    const count = state.users.filter((u) => titles.includes(u.OrgLevel1 || '')).length;
+    xlsxDownload(blob, filename);
+    toast('ok', filename + ' を出力しました(' + count + '件)');
+  }
+
+  // Excel インポート(エクスポートと同じ形式。testBuf を渡すとファイル選択をスキップ — テスト用)
+  async function userImportXlsxFlow(testBuf) {
+    let buf = testBuf;
+    if (!buf) {
+      const file = await pickXlsxFile();
+      if (!file) return;
+      buf = await file.arrayBuffer();
+    }
+    let plan;
+    try {
+      plan = buildXlsxImportPlan(state, await xlsxParse(buf));
+    } catch (e) {
+      toast('err', 'Excelファイルの解析に失敗しました — ' + e.message);
+      return;
+    }
+    const byId = new Map(state.users.map((u) => [u.Id, u]));
+    const changed = plan.updates.filter((e) => xlsxRowChanged(state, e, byId.get(e.id)));
+    if (!plan.adds.length && !changed.length && !plan.deletes.length) {
+      toast('ok', '変更はありません(リストとファイルの内容は一致しています)');
+      return;
+    }
+    const ok = await openXlsxConfirmModal(plan, changed.length);
+    if (!ok) return;
+    run('Excelインポート', async () => {
+      // 1) 未登録マスタの自動登録 → 列・集計の反映(CSV取込と同じ流儀)
+      if (plan.missingL1.length || plan.missingL2.length) {
+        setStatus('未登録マスタを登録中…');
+        let order1 = nextOrder(state.l1);
+        for (const t of plan.missingL1) {
+          await addItem(LIST_L1, { Title: t, SortOrder: order1, Active: true });
+          order1 += 10;
+        }
+        if (plan.missingL1.length) await loadAll();
+        for (const m of plan.missingL2) {
+          const l1 = state.l1.find((x) => x.Title === m.l1);
+          if (!l1) continue;
+          const siblings = state.l2.filter((x) => x.Level1 && x.Level1.Id === l1.Id);
+          await addItem(LIST_L2, { Title: m.name, SortOrder: nextOrder(siblings), Active: true, Level1Id: l1.Id });
+          await loadAll();
+        }
+        setStatus('マスタをリストへ反映中…');
+        const sres = await syncMastersToUserList(state, setStatus);
+        if (sres.org2Mode) state.org2Mode = sres.org2Mode;
+      }
+      // 2) 選択肢に無い 変更区分/権限 の値は追加しておく(取込エラー防止)
+      const needCt = [...new Set(plan.entries.map((e) => e.changeType).filter(Boolean))]
+        .filter((v) => !state.choices.changeType.includes(v));
+      if (needCt.length) {
+        const merged = state.choices.changeType.concat(needCt);
+        await setChoices(LIST_USERS, 'ChangeType', '変更区分', merged, true);
+        state.choices.changeType = merged;
+      }
+      const needPm = [...new Set(plan.entries.map((e) => e.permission).filter(Boolean))]
+        .filter((v) => !state.choices.permission.includes(v));
+      if (needPm.length) {
+        const merged = state.choices.permission.concat(needPm);
+        await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
+        state.choices.permission = merged;
+      }
+      // 3) 追加 / 更新(差分のある行のみ) / 論理削除
+      const total = plan.adds.length + changed.length + plan.deletes.length;
+      let done = 0;
+      const rowErrors = [];
+      const step = () => setStatus('Excelを取込中… (' + (++done) + '/' + total + ')');
+      for (const e of plan.adds) {
+        step();
+        try {
+          await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+        } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
+      }
+      for (const e of changed) {
+        step();
+        try {
+          const u = byId.get(e.id);
+          await updateItem(LIST_USERS, e.id, withOrg2Text(buildXlsxBody(state, e, u), u));
+        } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
+      }
+      for (const u of plan.deletes) {
+        step();
+        try {
+          await updateItem(LIST_USERS, u.Id, { SystemDeleted: true });
+        } catch (err) { rowErrors.push({ name: u.Title, msg: err.message }); }
+      }
+      await reload();
+      // 4) 権限グループ割当があれば行レベル権限も追従
+      if (hasAnyPermConfig(state)) {
+        const ps = await applyPermissionsAll(state, setStatus);
+        if (ps.errors.length) {
+          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+        }
+      }
+      toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
+        '件 / 論理削除 ' + plan.deletes.length + '件');
+      if (rowErrors.length) {
+        toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
+          rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
+          ' — 最初のエラー: ' + rowErrors[0].msg);
+      }
+    });
+  }
+
   async function userBulkFlow() {
     const ids = [...selectedUserIds];
     if (!ids.length) return;
@@ -506,6 +621,8 @@
 
     if (act === 'user-add') { userAddFlow(); return; }
     if (act === 'user-import') { userImportFlow(); return; }
+    if (act === 'user-export') { userExportFlow(); return; }
+    if (act === 'user-import-xlsx') { userImportXlsxFlow(); return; }
     if (act === 'user-bulk') { userBulkFlow(); return; }
     if (act === 'user-del-selected') { userDeleteFlow(); return; }
     if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -686,7 +803,13 @@
   // ---------------------------------------------------------------- start
   render();
   run('読込', reload);
-  window.__webreg = { state, build: BUILD, importCsvText: (t) => userImportFlow(t) };
+  window.__webreg = {
+    state,
+    build: BUILD,
+    importCsvText: (t) => userImportFlow(t),
+    exportXlsx: (titles) => buildExportXlsx(state, titles),
+    importXlsx: (buf) => userImportXlsxFlow(buf),
+  };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 
   // 利用者一覧の定期ポーリング(他ユーザーの変更検知→通知)。新インスタンス起動時に旧タイマー停止
