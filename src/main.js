@@ -10,6 +10,7 @@ import { listId, setup } from './schema.js';
 import { ico } from './icons.js';
 import { css } from './styles.js';
 import { setRoot, el, esc, toast, modal } from './ui.js';
+import { startUpdateWatcher } from './updater.js';
 
 (() => {
   'use strict';
@@ -360,4 +361,5 @@ import { setRoot, el, esc, toast, modal } from './ui.js';
   render();
   run('読込', reload);
   window.__permreg = { state, build: BUILD };
+  startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 })();

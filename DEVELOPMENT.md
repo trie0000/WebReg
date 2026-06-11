@@ -62,6 +62,9 @@ src/
 - 版識別子は `<ver>-<srcSha8>`(buildTime・dirty マーカーを**含めない** — 更新誤検知防止)
 - 配布先は SP の `ドキュメント/permreg/`。開発中は `npm run dev`(127.0.0.1:18086、CORS付き、
   全リクエスト1行ログ)+ アプリ内「設定 → 開発者モード」でローカル参照
+- 起動中の自動更新は updater.js(読込元の version.txt を監視 → 更新モーダル → その場で再読込)。
+  permreg は共通規約 §17 の「トースト案内」ではなく**更新モーダル**を採用(ユーザー指定)。
+  `__permregSource` は bundle 実行**前**に設定する(後だと初回起動で監視が無効になる)
 - semver: バグ修正=PATCH / 後方互換の機能追加=MINOR / 破壊的変更=MAJOR(package.json の version)
 
 ## 7. コミット規律

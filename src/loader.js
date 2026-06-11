@@ -40,11 +40,14 @@
     console.error(msg);
   }
 
+  // __permregSource は bundle 実行「前」に設定する。bundle 起動時の更新監視が
+  // これを読むため、後から設定すると初回起動で監視が無効になる
   function evalLoad(ver) {
+    w.__permregSource = { base: base, dev: isLocal, ver: ver };
     fetch(base + '/permreg.bundle.js?v=' + encodeURIComponent(ver))
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(function (t) {
-        try { (0, eval)(t); w.__permregSource = { base: base, dev: isLocal, ver: ver }; }
+        try { (0, eval)(t); }
         catch (e) { fail('eval: ' + (e && e.message || e)); }
       })
       .catch(function (e) { fail(e && e.message || 'fetch error'); });
@@ -53,10 +56,10 @@
   function scriptLoad(ver) {
     var o = d.getElementById('permreg-script');
     if (o) o.remove();
+    w.__permregSource = { base: base, dev: false, ver: ver };
     var s = d.createElement('script');
     s.id = 'permreg-script';
     s.src = base + '/permreg.bundle.js?v=' + encodeURIComponent(ver);
-    s.onload = function () { w.__permregSource = { base: base, dev: false, ver: ver }; };
     s.onerror = function () { fail('script load error'); };
     d.body.appendChild(s);
   }
