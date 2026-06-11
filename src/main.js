@@ -340,7 +340,7 @@
 
     if (act === 'close') { root.remove(); return; }
     if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-    if (act === 'settings') { openSettingsModal(state).then(render); return; }
+    if (act === 'settings') { openSettingsModal(state).then(() => run('再読込', reload)); return; }
     if (act === 'reload') { run('再読込', reload); return; }
     if (act === 'setup') {
       run('セットアップ', async () => {

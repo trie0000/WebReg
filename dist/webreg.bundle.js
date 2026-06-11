@@ -5,9 +5,21 @@ const LS_WEB_URL = 'webreg.webUrl';
 const LS_DEV_SOURCE = 'webreg.dev.bundle-source';
 const LS_DEV_BASE = 'webreg.dev.local-base';
 const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/webreg';
-const LIST_L1 = '組織区分第1階層マスタ';
-const LIST_L2 = '組織区分第2階層マスタ';
-const LIST_USERS = '利用者一覧';
+const LS_LIST_PREFIX = 'webreg.listPrefix';
+const BASE_LIST_L1 = '組織区分第1階層マスタ';
+const BASE_LIST_L2 = '組織区分第2階層マスタ';
+const BASE_LIST_USERS = '利用者一覧';
+let LIST_L1, LIST_L2, LIST_USERS;
+function listPrefix() {
+try { return (localStorage.getItem(LS_LIST_PREFIX) || '').trim(); } catch { return ''; }
+}
+function applyListPrefix() {
+const p = listPrefix();
+LIST_L1 = p + BASE_LIST_L1;
+LIST_L2 = p + BASE_LIST_L2;
+LIST_USERS = p + BASE_LIST_USERS;
+}
+applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['参照者', '更新者'];
 const POLL_INTERVAL = 30000;
@@ -24,7 +36,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 }
 }
 } catch { }
-const BUILD = typeof "0.1.0-71c5cee6" !== 'undefined' ? "0.1.0-71c5cee6" : 'dev';
+const BUILD = typeof "0.1.0-2344fb4a" !== 'undefined' ? "0.1.0-2344fb4a" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1437,6 +1449,12 @@ const back = el(`
           <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
         <div class="pr-field">
+          <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭に付ける)</label>
+          <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
+          <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
+            変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照し、無ければセットアップ/反映で作成します)。</span>
+        </div>
+        <div class="pr-field">
           <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
           <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
         </div>
@@ -1473,7 +1491,17 @@ back.remove();
 resolve();
 };
 const save = async () => {
-if (state.usersReady) {
+const prefix = back.querySelector('#pr-list-prefix').value.trim();
+if (/[\\/:*?"<>|#%]/.test(prefix)) {
+toast('warn', '接頭辞に \\ / : * ? " < > | # % は使えません');
+return;
+}
+const prefixChanged = prefix !== listPrefix();
+if (prefixChanged) {
+localStorage.setItem(LS_LIST_PREFIX, prefix);
+applyListPrefix();
+}
+if (state.usersReady && !prefixChanged) {
 const parseLines = (id) => [...new Set(back.querySelector(id).value
 .split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
 const ct = parseLines('#pr-choice-ct');
@@ -1892,7 +1920,7 @@ const items = kind === 'l1' ? state.l1
 const item = items && items.find((x) => x.Id === id);
 if (act === 'close') { root.remove(); return; }
 if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-if (act === 'settings') { openSettingsModal(state).then(render); return; }
+if (act === 'settings') { openSettingsModal(state).then(() => run('再読込', reload)); return; }
 if (act === 'reload') { run('再読込', reload); return; }
 if (act === 'setup') {
 run('セットアップ', async () => {

@@ -34,6 +34,12 @@ function openSettingsModalInner(state, resolve) {
           <span class="pr-note">webreg.bundle.js を含むフォルダの絶対パス。保存で即切替(サーバ再起動で既定の dist/ に戻る)。</span>
         </div>
         <div class="pr-field">
+          <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭に付ける)</label>
+          <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
+          <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
+            変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照し、無ければセットアップ/反映で作成します)。</span>
+        </div>
+        <div class="pr-field">
           <label>「変更区分」の選択肢(1行1件。利用者一覧リストの列に反映)</label>
           <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
         </div>
@@ -76,8 +82,21 @@ function openSettingsModalInner(state, resolve) {
   };
 
   const save = async () => {
-    // 変更区分/権限の選択肢(利用者一覧リストの列 Choices に反映)
-    if (state.usersReady) {
+    // リスト名の接頭辞
+    const prefix = back.querySelector('#pr-list-prefix').value.trim();
+    if (/[\\/:*?"<>|#%]/.test(prefix)) {
+      toast('warn', '接頭辞に \\ / : * ? " < > | # % は使えません');
+      return;
+    }
+    const prefixChanged = prefix !== listPrefix();
+    if (prefixChanged) {
+      localStorage.setItem(LS_LIST_PREFIX, prefix);
+      applyListPrefix();
+    }
+
+    // 変更区分/権限の選択肢(利用者一覧リストの列 Choices に反映)。
+    // 接頭辞を変えた直後は参照先リストが変わるためスキップ(再読込後に編集する)
+    if (state.usersReady && !prefixChanged) {
       const parseLines = (id) => [...new Set(back.querySelector(id).value
         .split(/\r?\n/).map((x) => x.trim()).filter(Boolean))];
       const ct = parseLines('#pr-choice-ct');
