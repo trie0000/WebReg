@@ -263,6 +263,8 @@
   font-family:var(--font-sans); font-size:var(--fs-md); line-height:var(--lh-base);
   color:var(--ink); background:var(--paper);
   border-left:1px solid var(--line-strong); box-shadow:var(--shadow-panel);
+  /* all:initial の user-select:auto は SP host の none を継承してコピー不可になるため明示 */
+  -webkit-user-select:text; user-select:text;
 }
 #${ROOT_ID} *, #${ROOT_ID} *::before, #${ROOT_ID} *::after{ box-sizing:border-box; }
 #${ROOT_ID} svg{ width:16px; height:16px; flex:none; }
