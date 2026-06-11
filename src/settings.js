@@ -21,7 +21,7 @@ function openSettingsModalInner(state, resolve) {
         <div class="pr-hub-body">
           <nav class="pr-hub-nav" aria-label="設定メニュー">
             <button class="pr-nav-item active" data-hub="personal">個人設定<small>この端末に保存</small></button>
-            <button class="pr-nav-item" data-hub="shared">共通設定<small>利用者一覧リストに保存</small></button>
+            <button class="pr-nav-item" data-hub="shared">共通設定<small>SP リストに保存(全員に適用)</small></button>
             <button class="pr-nav-item" data-hub="dev">開発者<small>配信元 / バージョン</small></button>
           </nav>
           <div class="pr-hub-panels">
@@ -44,6 +44,11 @@ function openSettingsModalInner(state, resolve) {
                 ${state.usersReady ? '' : '<span class="pr-note">「リストへ反映」で利用者一覧リストを作成すると編集できます。</span>'}
               </div>
               <span class="pr-note">保存すると利用者一覧リストの列の選択肢に即反映されます(全員に適用)。</span>
+              <div class="pr-field">
+                <label>管理者グループ(「権限を反映」時に全行へフルコントロールを付与)</label>
+                <div class="pr-checks pr-checks--perm" id="pr-admin-groups"><span class="pr-note">権限グループを取得中…</span></div>
+                <span class="pr-note">「${esc(LIST_CONF)}」リストに保存します(全員共有)。行の参照/更新グループの割当はマスタ管理の鍵アイコンから。</span>
+              </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
               <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(srcInfo)}</code></div>
@@ -107,6 +112,19 @@ function openSettingsModalInner(state, resolve) {
   back.querySelector('#pr-choice-ct').value = state.choices.changeType.join('\n');
   back.querySelector('#pr-choice-pm').value = state.choices.permission.join('\n');
 
+  // 管理者グループ: サイトのグループ一覧 + 保存済みの選択をチェックリストで表示
+  const adminBox = back.querySelector('#pr-admin-groups');
+  let adminLoadedIds = null; // 取得成功時のみ保存対象にする
+  (async () => {
+    try {
+      const [groups, ids] = await Promise.all([fetchSiteGroups(), loadAdminGroupIds()]);
+      adminLoadedIds = ids;
+      adminBox.innerHTML = permChecksHtml('a', groups, ids);
+    } catch (e) {
+      adminBox.innerHTML = '<span class="pr-note">権限グループを取得できません — ' + esc(e.message) + '</span>';
+    }
+  })();
+
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
     back.remove();
@@ -145,6 +163,20 @@ function openSettingsModalInner(state, resolve) {
           state.choices = { changeType: ct, permission: pm };
         } catch (e) {
           toast('err', '選択肢の更新に失敗しました — ' + e.message);
+          return; // モーダルは開いたまま再試行できる
+        }
+      }
+    }
+
+    // 共通設定: 管理者グループ(取得に成功していて選択が変わったときだけ保存)
+    if (adminLoadedIds && !prefixChanged) {
+      const ids = collectPermIds(back, 'a');
+      if (JSON.stringify(ids) !== JSON.stringify(adminLoadedIds)) {
+        try {
+          await saveAdminGroupIds(ids);
+          adminLoadedIds = ids;
+        } catch (e) {
+          toast('err', '管理者グループの保存に失敗しました — ' + e.message);
           return; // モーダルは開いたまま再試行できる
         }
       }

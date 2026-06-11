@@ -44,7 +44,8 @@
 
   async function loadAll() {
     const [r1, r2, ru] = await Promise.all([
-      spGet(lt(LIST_L1) + '/items?$select=Id,Title,SortOrder,Active&$orderby=SortOrder,Id&$top=4999'),
+      // $select=* : 権限グループ割当列(PermRead/PermEdit。未作成でも可)も読む
+      spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
       spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
       state.usersReady
         ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
@@ -165,7 +166,9 @@
   async function userAddFlow() {
     const result = await openUserForm(state, async (body) => {
       await ensureCheckedL2Cols(body);
-      await addItem(LIST_USERS, withOrg2Text(body));
+      const j = await addItem(LIST_USERS, withOrg2Text(body));
+      // 権限グループ割当があれば、登録した行に行レベル権限を即適用(失敗は警告どまり)
+      if (j && j.Id) await applyPermAfterWrite(state, j.Id, body.OrgLevel1);
       return body.Title;
     });
     if (!result) return;
@@ -179,6 +182,8 @@
     const result = await openUserForm(state, async (body) => {
       await ensureCheckedL2Cols(body);
       await updateItem(LIST_USERS, item.Id, withOrg2Text(body, item));
+      // 組織区分1の変更で参照可能なグループが変わるため、編集後も再適用
+      await applyPermAfterWrite(state, item.Id, body.OrgLevel1);
       return body.Title;
     }, item);
     if (!result) return;
@@ -291,6 +296,13 @@
         }
       }
       await reload();
+      // 4) 権限グループ割当があれば、行レベル権限も追従させる(冪等な全行反映)
+      if (hasAnyPermConfig(state)) {
+        const ps = await applyPermissionsAll(state, setStatus);
+        if (ps.errors.length) {
+          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+        }
+      }
       toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
         (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
       if (rowErrors.length) {
@@ -337,6 +349,13 @@
     const l2of = (l1id) => state.l2.filter((x) => x.Level1 && x.Level1.Id === l1id);
     const sel = state.l1.find((x) => x.Id === state.selectedL1);
 
+    const permBtn = (x) => {
+      const nr = parseGroupIds(x.PermRead).length;
+      const ne = parseGroupIds(x.PermEdit).length;
+      const on = nr || ne;
+      return `<button class="pr-btn pr-btn--icon pr-btn--icon-action${on ? ' pr-perm-on' : ''}" data-act="perm"
+        aria-label="権限グループ" title="権限グループの割当${on ? '(参照 ' + nr + ' / 更新 ' + ne + ')' : '(未設定)'}">${ico('key')}</button>`;
+    };
     const rowHtml = (x, kind, extra) => `
       <div class="pr-row${x.Active === false ? ' off' : ''}${extra || ''}" data-kind="${kind}" data-id="${x.Id}">
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="up" aria-label="上へ" title="上へ">${ico('chevron-up')}</button>
@@ -346,6 +365,7 @@
         <label class="pr-active" title="有効/無効">
           <input type="checkbox" data-act="active" aria-label="有効" ${x.Active !== false ? 'checked' : ''}>
         </label>
+        ${kind === 'l1' ? permBtn(x) : ''}
         <button class="pr-btn pr-btn--icon pr-btn--icon-action" data-act="rename" aria-label="名称変更" title="名称変更">${ico('edit-2')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--icon-trash" data-act="del" aria-label="削除" title="削除">${ico('trash-2')}</button>
       </div>`;
@@ -361,6 +381,8 @@
     return `
       <div class="pr-syncbar">
         <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)</span>
+        <button class="pr-btn pr-btn--secondary" data-act="sync-perms" ${state.usersReady ? '' : 'disabled'}
+          title="${esc(LABEL_L1)}ごとの権限グループ割当(鍵アイコン)を各行のアクセス権として適用">${ico('key')}権限を反映</button>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
       </div>
       <div class="pr-cols">
@@ -522,6 +544,33 @@
       return;
     }
 
+    if (act === 'sync-perms') {
+      const configured = state.l1.filter((x) => parseGroupIds(x.PermRead).length || parseGroupIds(x.PermEdit).length);
+      if (!configured.length) {
+        toast('warn', '権限グループが未割当です。' + LABEL_L1 + 'の鍵アイコンから割り当ててください');
+        return;
+      }
+      const admins = await loadAdminGroupIds();
+      const ok = await modal({
+        title: '権限を反映',
+        message: '「' + LIST_USERS + '」の各行にアクセス権を設定します: 権限グループを割当済みの' +
+          LABEL_L1 + '(' + configured.length + '件)の行は継承を解除して割当グループのみに(参照=読み取り / 更新=投稿' +
+          (admins.length ? ' / 管理者グループ ' + admins.length + '件=フルコントロール' : '') +
+          ')。未割当の' + LABEL_L1 + 'の行はリストの権限を継承したままにします。' +
+          (admins.length ? '' : ' ※管理者グループが未設定です(設定→共通設定)。実行者以外の管理者は制限行を開けなくなります。'),
+        okLabel: '反映する',
+      });
+      if (!ok) return;
+      run('権限を反映', async () => {
+        const s = await applyPermissionsAll(state, setStatus);
+        toast('ok', '権限を反映しました: 固有権限 ' + s.applied + '行 / 継承 ' + s.inherited + '行');
+        if (s.errors.length) {
+          toast('err', '権限設定に失敗した行 ' + s.errors.length + '件 — 最初のエラー: ' + s.errors[0].msg);
+        }
+      });
+      return;
+    }
+
     if (act === 'bulk-l1' || act === 'bulk-l2') {
       const isL1 = act === 'bulk-l1';
       const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
@@ -585,6 +634,11 @@
     }
 
     if (!item) return;
+
+    if (act === 'perm') {
+      openL1PermModal(state, item).then((saved) => { if (saved) run('再読込', reload); });
+      return;
+    }
 
     if (act === 'rename') {
       const name = await modal({ title: '名称変更', inputValue: item.Title, okLabel: '保存' });

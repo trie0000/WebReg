@@ -43,6 +43,25 @@
     if (path.startsWith('/_api/site?') || path.startsWith('/_api/web?')) {
       return json(200, { Id: newGuid() });
     }
+    // サイトの権限グループ / ロール定義
+    if (path.startsWith('/_api/web/sitegroups')) {
+      return json(200, { value: [
+        { Id: 3, Title: 'n365 所有者' },
+        { Id: 5, Title: 'n365 メンバー' },
+        { Id: 6, Title: 'n365 閲覧者' },
+        { Id: 11, Title: '事業会社A 担当' },
+        { Id: 12, Title: '事業会社B 担当' },
+        { Id: 20, Title: 'システム管理者' },
+      ] });
+    }
+    if (path.startsWith('/_api/web/roledefinitions')) {
+      return json(200, { value: [
+        { Id: 1073741829, Name: 'フル コントロール', RoleTypeKind: 5 },
+        { Id: 1073741830, Name: '編集', RoleTypeKind: 6 },
+        { Id: 1073741827, Name: '投稿', RoleTypeKind: 3 },
+        { Id: 1073741826, Name: '読み取り', RoleTypeKind: 2 },
+      ] });
+    }
 
     // リスト作成
     if (path === '/_api/web/lists' && method === 'POST') {
@@ -156,9 +175,26 @@
         const id = +im[1];
         const idx = list.items.findIndex((x) => x.Id === id);
         if (idx < 0) return json(404, {});
+        const it = list.items[idx];
+        const sub = rest.slice(im[0].length);
+        // 行レベル権限(継承解除/復帰/ロール割当)
+        if (sub.startsWith('/breakroleinheritance')) {
+          it.__perm = { broken: true, assignments: [] };
+          return json(204, null);
+        }
+        if (sub.startsWith('/resetroleinheritance')) {
+          delete it.__perm;
+          return json(204, null);
+        }
+        const ra = sub.match(/^\/roleassignments\/addroleassignment\(principalid=(\d+),roledefid=(\d+)\)/);
+        if (ra) {
+          if (!it.__perm || !it.__perm.broken) return json(400, { 'odata.error': { message: { value: 'mock: 継承中のアイテムには割当できません' } } });
+          it.__perm.assignments.push({ principalId: +ra[1], roleDefId: +ra[2] });
+          return json(204, null);
+        }
         if (xm === 'DELETE') { list.items.splice(idx, 1); return json(204, null); }
         if (xm === 'MERGE') {
-          Object.assign(list.items[idx], body, { Modified: new Date().toISOString() });
+          Object.assign(it, body, { Modified: new Date().toISOString() });
           return json(204, null);
         }
       }
@@ -171,7 +207,8 @@
       // GET — 全プロパティを返し、$expand=Level1 のときは Level1:{Id} 形式も付与
       const expand = rest.includes('$expand=Level1');
       const desc = rest.includes('$orderby=Id desc');
-      const items = [...list.items].sort((a, b) => desc ? (b.Id - a.Id)
+      const tf = rest.match(/\$filter=Title eq '([^']*)'/);
+      const items = [...list.items].filter((x) => !tf || x.Title === tf[1]).sort((a, b) => desc ? (b.Id - a.Id)
         : ((a.SortOrder || 0) - (b.SortOrder || 0) || a.Id - b.Id))
         .map((x) => {
           const o = Object.assign({}, x);

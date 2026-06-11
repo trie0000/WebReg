@@ -13,7 +13,8 @@ const LS_LIST_PREFIX = 'webreg.listPrefix';
 const BASE_LIST_L1 = '組織区分第1階層マスタ';
 const BASE_LIST_L2 = '組織区分第2階層マスタ';
 const BASE_LIST_USERS = '利用者一覧';
-let LIST_L1, LIST_L2, LIST_USERS;
+const BASE_LIST_CONF = 'WebReg設定';
+let LIST_L1, LIST_L2, LIST_USERS, LIST_CONF;
 function listPrefix() {
   try { return (localStorage.getItem(LS_LIST_PREFIX) || '').trim(); } catch { return ''; }
 }
@@ -22,6 +23,7 @@ function applyListPrefix() {
   LIST_L1 = p + BASE_LIST_L1;
   LIST_L2 = p + BASE_LIST_L2;
   LIST_USERS = p + BASE_LIST_USERS;
+  LIST_CONF = p + BASE_LIST_CONF;
 }
 applyListPrefix();
 

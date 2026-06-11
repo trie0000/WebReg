@@ -293,6 +293,11 @@ const css = `
   font-size:var(--fs-md); cursor:pointer; white-space:nowrap;
 }
 #${ROOT_ID} .pr-check input{ width:14px; height:14px; accent-color:var(--accent); cursor:pointer; margin:0; }
+/* 権限グループ選択(縦リスト・スクロール) */
+#${ROOT_ID} .pr-checks--perm{ display:block; max-height:180px; overflow:auto; }
+#${ROOT_ID} .pr-checks--perm .pr-check{ display:flex; padding:2px 0; white-space:normal; }
+/* L1 行の鍵アイコン: 割当ありはアクセント色 */
+#${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
 
 /* ---- status bar ---- */
 #${ROOT_ID} .pr-status{
