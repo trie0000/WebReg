@@ -847,16 +847,11 @@
         toast('ok', '「' + item.Title + '」を削除しました');
       });
     } else if (act === 'up' || act === 'down') {
+      // SPリスト側(集計式・列順)への反映はその都度行わず、「リストへ反映」で一括適用する
+      // (未反映の間は見出しに「並び替え」バッジが出る)
       run('並べ替え', async () => {
         await moveItem(listTitle, items, item, act === 'up' ? -1 : 1);
         await reload();
-        // 並び順は集計式・登録モーダル・リスト列順にも影響するため、利用者一覧があれば自動反映
-        if (state.usersReady) {
-          setStatus('並び順をリストへ反映中…');
-          await syncMastersToUserList(state, setStatus);
-          await saveSyncFp('master', computeMasterSnap(state));
-          await reload();
-        }
       });
     }
   });

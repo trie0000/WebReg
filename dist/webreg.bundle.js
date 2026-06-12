@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-c5e48e1a" !== 'undefined' ? "0.1.0-c5e48e1a" : 'dev';
+const BUILD = typeof "0.1.0-667583dc" !== 'undefined' ? "0.1.0-667583dc" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -4085,12 +4085,6 @@ toast('ok', '「' + item.Title + '」を削除しました');
 run('並べ替え', async () => {
 await moveItem(listTitle, items, item, act === 'up' ? -1 : 1);
 await reload();
-if (state.usersReady) {
-setStatus('並び順をリストへ反映中…');
-await syncMastersToUserList(state, setStatus);
-await saveSyncFp('master', computeMasterSnap(state));
-await reload();
-}
 });
 }
 });
