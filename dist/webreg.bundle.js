@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-fc0068ec" !== 'undefined' ? "0.1.0-fc0068ec" : 'dev';
+const BUILD = typeof "0.1.0-92690693" !== 'undefined' ? "0.1.0-92690693" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -479,7 +479,7 @@ await spMerge(lt(LIST_USERS) + '/items(' + it.Id + ')', { OrgLevel2: txt });
 summary.formulaWarn = LABEL_L2 + 'の表示値更新: ' + e.message;
 }
 }
-await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2']);
 log('SPリストの表示設定を更新中…');
 try {
 await applyListFormatting(state);
@@ -545,6 +545,9 @@ try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "
 }
 }
 async function applyColumnOrder(orderedManaged) {
+const TITLE_ALIAS = new Set(['LinkTitle', 'Title', 'LinkTitleNoMenu']);
+const DESIRED = ['LinkTitle', 'Company', 'Email', 'ChangeType', 'Permission',
+'OrgLevel1', 'OrgLevel2', 'Notes', 'AppliedDate', 'SystemDeleted', 'Modified', 'Editor'];
 let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
 const counts = new Map();
 current.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
@@ -559,16 +562,26 @@ await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + 
 }
 await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
 }
-if (hadDupes) {
+if (hadDupes) current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+const titleField = current.find((n) => TITLE_ALIAS.has(n)) || 'LinkTitle';
+const desired = DESIRED.map((n) => (n === 'LinkTitle' ? titleField : n));
+const desiredSet = new Set(desired);
+for (const n of current) {
+if (desiredSet.has(n) || TITLE_ALIAS.has(n)) continue;
+try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { }
+}
 current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+for (const n of desired) {
+if (!current.includes(n)) {
+try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { }
+}
+}
+for (let i = 0; i < desired.length; i++) {
+try {
+await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
+} catch { }
 }
 const managedSet = new Set(orderedManaged);
-const baseCount = current.filter((n) => !managedSet.has(n)).length;
-const inView = orderedManaged.filter((n) => current.includes(n));
-for (let i = 0; i < inView.length; i++) {
-await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto',
-{ field: inView[i], index: baseCount + i });
-}
 const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
 const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
 if (!ct) return;

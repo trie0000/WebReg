@@ -294,7 +294,9 @@ async function syncMastersToUserList(state, log) {
     }
   }
 
-  await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+  // 個別の組織区分2チェック列(L2_*)はビューに出さない(集計列 OrgLevel2 で代替)。
+  // 並び・表示列は applyColumnOrder で明示指定する
+  await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2']);
 
   // SP標準フォームの設定: 読み取り専用の集計列(OrgLevel2 と中間列 O2S_*)は
   // 新規追加/編集フォームに出さない。変更区分/権限は色付きチップで表示する
@@ -374,10 +376,15 @@ async function applyListFormatting(state) {
   }
 }
 
-// 既定ビューの列順と、SP標準フォーム(コンテンツタイプ FieldLinks)の列順を
-// orderedManaged(組織区分1 → 集計列 → 組織区分2チェック列のマスタ順)に揃える
+// 既定ビューの表示列と並び(ユーザー指定)を明示設定し、SP標準フォーム(FieldLinks)の
+// 列順を orderedManaged(組織区分1 → すべて → 集計列 → 組織区分2チェック列)に揃える。
+// 既定ビュー = 利用者名/会社名/メール/変更区分/権限/組織区分1/組織区分2/特記事項/
+//              システム反映日/システム削除/更新日時/更新者(個別の L2_* チェック列は出さない)
 async function applyColumnOrder(orderedManaged) {
-  // 既定ビュー: 管理対象以外の列を先頭に保ち、管理対象を末尾に指定順で並べる
+  const TITLE_ALIAS = new Set(['LinkTitle', 'Title', 'LinkTitleNoMenu']);
+  const DESIRED = ['LinkTitle', 'Company', 'Email', 'ChangeType', 'Permission',
+    'OrgLevel1', 'OrgLevel2', 'Notes', 'AppliedDate', 'SystemDeleted', 'Modified', 'Editor'];
+
   let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
   // 過去の重複追加(実機 addviewfield の仕様)を掃除。
   // removeviewfield は1回の呼び出しで1つしか消えないため、出現回数分削除して1つ追加し直す
@@ -394,17 +401,33 @@ async function applyColumnOrder(orderedManaged) {
     }
     await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
   }
-  if (hadDupes) {
-    current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  if (hadDupes) current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+
+  // ビューにあるタイトル列の内部名(LinkTitle 既定)を使う
+  const titleField = current.find((n) => TITLE_ALIAS.has(n)) || 'LinkTitle';
+  const desired = DESIRED.map((n) => (n === 'LinkTitle' ? titleField : n));
+  const desiredSet = new Set(desired);
+  // 指定外の列(L2_*・組織区分2のすべて・中間列・改廃ステータス等)をビューから外す
+  for (const n of current) {
+    if (desiredSet.has(n) || TITLE_ALIAS.has(n)) continue;
+    try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { /* ignore */ }
   }
-  const managedSet = new Set(orderedManaged);
-  const baseCount = current.filter((n) => !managedSet.has(n)).length;
-  const inView = orderedManaged.filter((n) => current.includes(n));
-  for (let i = 0; i < inView.length; i++) {
-    await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto',
-      { field: inView[i], index: baseCount + i });
+  // 不足列を追加
+  current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  for (const n of desired) {
+    if (!current.includes(n)) {
+      try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { /* 追加不可の組込列はスキップ */ }
+    }
   }
+  // 指定順に並べる(ビューに無い列はスキップ)
+  for (let i = 0; i < desired.length; i++) {
+    try {
+      await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
+    } catch { /* ignore */ }
+  }
+
   // SP標準フォーム: FieldLinks の全体順(管理対象以外は現状維持で先頭、管理対象を末尾)
+  const managedSet = new Set(orderedManaged);
   const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
   const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
   if (!ct) return;
