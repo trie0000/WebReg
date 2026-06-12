@@ -69,9 +69,16 @@
           spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
           spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
         ]);
+        let pmChoices = (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS;
+        // 廃止した「参照者」は、使っている行が無ければツールの選択肢にも出さない
+        // (リスト側の選択肢は「リストへ反映」時に自動で掃除される)
+        if (!state.users.some((u) => u.Permission === '参照者')) {
+          pmChoices = pmChoices.filter((x) => x !== '参照者');
+          if (!pmChoices.length) pmChoices = PERMISSION_DEFAULTS;
+        }
         state.choices = {
           changeType: (ct.Choices && ct.Choices.length) ? ct.Choices : CHANGE_TYPE_DEFAULTS,
-          permission: (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS,
+          permission: pmChoices,
         };
       } catch { /* 既定値のまま */ }
     }

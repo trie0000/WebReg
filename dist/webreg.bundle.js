@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-1a790f3d" !== 'undefined' ? "0.1.0-1a790f3d" : 'dev';
+const BUILD = typeof "0.1.0-669bef7b" !== 'undefined' ? "0.1.0-669bef7b" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -3151,9 +3151,14 @@ const [ct, pm] = await Promise.all([
 spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('ChangeType')?$select=Choices"),
 spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices"),
 ]);
+let pmChoices = (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS;
+if (!state.users.some((u) => u.Permission === '参照者')) {
+pmChoices = pmChoices.filter((x) => x !== '参照者');
+if (!pmChoices.length) pmChoices = PERMISSION_DEFAULTS;
+}
 state.choices = {
 changeType: (ct.Choices && ct.Choices.length) ? ct.Choices : CHANGE_TYPE_DEFAULTS,
-permission: (pm.Choices && pm.Choices.length) ? pm.Choices : PERMISSION_DEFAULTS,
+permission: pmChoices,
 };
 } catch { }
 }
