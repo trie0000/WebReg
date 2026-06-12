@@ -3,13 +3,13 @@
 //   モーダルは固定サイズ(メニューで大きさを変えない)+ユーザーが端ドラッグでリサイズ可
 //   パネルは全て初回に描画して表示切替のみ → ナビを切り替えても入力 draft を失わない(§20)
 //   保存は右下の単一ボタンに集約。閉じたら resolve する Promise を返す
-function openSettingsModal(state) {
+function openSettingsModal(state, handlers) {
   return new Promise((resolve) => {
-    openSettingsModalInner(state, resolve);
+    openSettingsModalInner(state, resolve, handlers || {});
   });
 }
 
-function openSettingsModalInner(state, resolve) {
+function openSettingsModalInner(state, resolve, handlers) {
   const srcInfo = (window.__webregSource && window.__webregSource.base) || '直接実行(埋め込み/開発コンソール)';
   const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
   const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
@@ -54,6 +54,17 @@ function openSettingsModalInner(state, resolve) {
                 <label>管理者グループ(「権限を反映」時に全行へフルコントロールを付与)</label>
                 <div class="pr-checks pr-checks--perm" id="pr-admin-groups"><span class="pr-note">権限グループを取得中…</span></div>
                 <span class="pr-note">「${esc(LIST_CONF)}」リストに保存します(全員共有)。行の参照/更新グループの割当はマスタ管理の鍵アイコンから。</span>
+              </div>
+              <div class="pr-field">
+                <label>データ管理(バックアップ / リストア / リセット)</label>
+                <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
+                  <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
+                  <button class="pr-btn pr-btn--secondary" data-sact="restore">リストア(復元)</button>
+                  <button class="pr-btn pr-btn--danger" data-sact="reset">リストを空にする</button>
+                </div>
+                <span class="pr-note">バックアップ=管理用を含む全リストの内容・集計式・条件式・書式をJSONで保存。
+                  リストア=そのJSONから復元(空のリストからでも戻せます)。
+                  リセット=管理対象リストの全アイテムを削除して空にします(構造は残ります)。</span>
               </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
@@ -108,6 +119,10 @@ function openSettingsModalInner(state, resolve) {
 
   // 操作ログを開く(設定モーダルは閉じずに重ねて表示)
   back.querySelector('[data-sact="audit"]').addEventListener('click', () => { openAuditLogModal(); });
+  // データ管理: バックアップは設定を開いたまま、リストア/リセットは設定を閉じてから実行
+  back.querySelector('[data-sact="backup"]').addEventListener('click', () => { if (handlers.onBackup) handlers.onBackup(); });
+  back.querySelector('[data-sact="restore"]').addEventListener('click', () => { close(); if (handlers.onRestore) handlers.onRestore(); });
+  back.querySelector('[data-sact="reset"]').addEventListener('click', () => { close(); if (handlers.onReset) handlers.onReset(); });
 
   // 配信フォルダ欄はローカル配信サーバから現在値を取得して埋める(サーバ未起動なら無効化)
   const dirInput = back.querySelector('#pr-bundle-dir');

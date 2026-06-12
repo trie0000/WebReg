@@ -504,6 +504,77 @@
       rows.length ? '差分 ' + rows.length + '件が見つかりました' : '差分はありませんでした');
   }
 
+  // バックアップ取得(管理用を含む全リストを JSON で保存)
+  function backupFlow() {
+    run('バックアップ', async () => {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
+        '-' + pad(now.getHours()) + pad(now.getMinutes());
+      const data = await buildBackup(state, now.toISOString());
+      const counts = Object.entries(data.lists)
+        .map(([k, v]) => v ? k + ':' + v.items.length : null).filter(Boolean).join(' / ');
+      backupDownload(data, 'WebReg_backup_' + (listPrefix() || '') + stamp + '.json');
+      auditNote('バックアップを取得(' + counts + ')');
+      toast('ok', 'バックアップを保存しました(' + counts + ')');
+    });
+  }
+
+  // リストア(バックアップJSONから復元)
+  async function restoreFlow() {
+    const file = await pickJsonFile();
+    if (!file) return;
+    let backup;
+    try {
+      backup = JSON.parse(await file.text());
+    } catch (e) {
+      toast('err', 'JSONの読み込みに失敗しました — ' + e.message);
+      return;
+    }
+    const lc = backup.lists || {};
+    const ok = await modal({
+      title: 'リストアの確認',
+      message: 'バックアップから復元します: ' + LABEL_L1 + ' ' + ((lc.l1 && lc.l1.items.length) || 0) +
+        '件 / ' + LABEL_L2 + ' ' + ((lc.l2 && lc.l2.items.length) || 0) + '件 / 利用者 ' +
+        ((lc.users && lc.users.items.length) || 0) + '件。既存の同名マスタ・利用者は重複追加しません' +
+        '(空のリストに復元するのが確実です)。集計列・条件式・書式は再構築されます。',
+      okLabel: '復元する',
+    });
+    if (!ok) return;
+    run('リストア', async () => {
+      auditNote('バックアップから復元(' + (backup.exportedAt || '') + ')');
+      const r = await restoreBackup(state, backup, setStatus, syncMastersToUserList);
+      await reload();
+      toast('ok', 'リストアが完了しました(利用者 ' + r.users + '件)');
+    });
+  }
+
+  // リセット(管理対象リストを空にする)
+  async function resetFlow() {
+    const ok = await modal({
+      title: 'リストを空にする',
+      message: '「' + LIST_USERS + '」「' + LIST_L1 + '」「' + LIST_L2 + '」「' + LIST_AUDIT +
+        '」の全アイテムを削除して空にします。この操作は元に戻せません(先にバックアップ取得を推奨)。',
+      okLabel: '空にする',
+      danger: true,
+    });
+    if (!ok) return;
+    const ok2 = await modal({
+      title: '最終確認',
+      message: '本当に全アイテムを削除しますか？ この操作は取り消せません。',
+      okLabel: '削除を実行',
+      danger: true,
+    });
+    if (!ok2) return;
+    run('リセット', async () => {
+      auditNote('管理対象リストの全アイテムを削除(リセット)');
+      const s = await resetAllItems(setStatus);
+      await reload();
+      toast('ok', 'リストを空にしました(削除: ' +
+        Object.entries(s).map(([, n]) => n).reduce((a, b) => a + b, 0) + '件)');
+    });
+  }
+
   async function userBulkFlow() {
     const ids = [...selectedUserIds];
     if (!ids.length) return;
@@ -748,7 +819,11 @@
 
     if (act === 'close') { root.remove(); return; }
     if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-    if (act === 'settings') { openSettingsModal(state).then(() => run('再読込', reload)); return; }
+    if (act === 'settings') {
+      openSettingsModal(state, { onBackup: backupFlow, onRestore: restoreFlow, onReset: resetFlow })
+        .then(() => run('再読込', reload));
+      return;
+    }
     if (act === 'reload') { run('再読込', reload); return; }
     if (act === 'setup') {
       run('セットアップ', async () => {

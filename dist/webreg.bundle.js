@@ -50,7 +50,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-2cba3b20" !== 'undefined' ? "0.1.0-2cba3b20" : 'dev';
+const BUILD = typeof "0.1.0-fec24172" !== 'undefined' ? "0.1.0-fec24172" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -2723,12 +2723,182 @@ document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
 });
 }
-function openSettingsModal(state) {
+const BACKUP_VERSION = 1;
+function backupDownload(obj, filename) {
+const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+const a = document.createElement('a');
+a.href = URL.createObjectURL(blob);
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function pickJsonFile() {
 return new Promise((resolve) => {
-openSettingsModalInner(state, resolve);
+const inp = document.createElement('input');
+inp.type = 'file';
+inp.accept = '.json,application/json';
+inp.style.display = 'none';
+let settled = false;
+const settle = (v) => { if (!settled) { settled = true; resolve(v); inp.remove(); } };
+inp.addEventListener('change', () => settle(inp.files && inp.files[0] ? inp.files[0] : null));
+window.addEventListener('focus', () => setTimeout(() => settle(null), 500), { once: true });
+document.body.appendChild(inp);
+inp.click();
 });
 }
-function openSettingsModalInner(state, resolve) {
+async function dumpList(title) {
+if (!(await listId(title))) return null;
+const fields = (await spGet(lt(title) +
+'/fields?$select=InternalName,Title,TypeAsString,Formula,ClientValidationFormula,' +
+'CustomFormatter,Choices,DefaultValue,Hidden,ReadOnlyField&$filter=Hidden eq false')).value || [];
+let view = [];
+try { view = (await spGet(lt(title) + '/defaultview/viewfields')).Items || []; } catch { }
+const items = (await spGet(lt(title) + '/items?$select=*&$top=5000')).value || [];
+return {
+name: title,
+fields: fields.map((f) => ({
+internal: f.InternalName, title: f.Title, type: f.TypeAsString,
+formula: f.Formula || null, condition: f.ClientValidationFormula || null,
+formatter: f.CustomFormatter || null, choices: f.Choices || null,
+defaultValue: f.DefaultValue || null,
+})),
+view, items,
+};
+}
+async function buildBackup(state, stamp) {
+const lists = {};
+for (const [key, title] of [['l1', LIST_L1], ['l2', LIST_L2], ['users', LIST_USERS],
+['conf', LIST_CONF], ['audit', LIST_AUDIT], ['common', LIST_COMMON]]) {
+lists[key] = await dumpList(title);
+}
+return { version: BACKUP_VERSION, exportedAt: stamp || '', prefix: listPrefix(), lists };
+}
+async function resetAllItems(log) {
+const summary = {};
+for (const [label, title] of [[LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1],
+['利用者一覧', LIST_USERS], ['操作ログ', LIST_AUDIT]]) {
+if (!(await listId(title))) { summary[title] = 0; continue; }
+const items = (await spGet(lt(title) + '/items?$select=Id&$top=5000')).value || [];
+let n = 0;
+for (const it of items) {
+log(label + 'を空にしています… (' + (++n) + '/' + items.length + ')');
+try { await spDelete(lt(title) + '/items(' + it.Id + ')'); } catch { }
+}
+summary[title] = items.length;
+}
+return summary;
+}
+async function restoreBackup(state, backup, log, reflectFn) {
+if (!backup || !backup.lists) throw new Error('バックアップ形式が不正です');
+const L = backup.lists;
+log('マスタリストを準備中…');
+await setup(log);
+log(LABEL_L1 + 'を復元中…');
+const curL1 = (await spGet(lt(LIST_L1) + '/items?$select=Id,Title')).value || [];
+const l1ByTitle = new Map(curL1.map((x) => [x.Title, x.Id]));
+const oldL1IdToTitle = new Map((L.l1 ? L.l1.items : []).map((x) => [x.Id, x.Title]));
+for (const x of (L.l1 ? L.l1.items : [])) {
+if (l1ByTitle.has(x.Title)) continue;
+const body = { Title: x.Title, SortOrder: x.SortOrder || 0, Active: x.Active !== false };
+if (x.PermEdit) body.PermEdit = x.PermEdit;
+if (x.PermRead) body.PermRead = x.PermRead;
+const j = await spPost(lt(LIST_L1) + '/items', body);
+l1ByTitle.set(x.Title, j.Id);
+}
+log(LABEL_L2 + 'を復元中…');
+const curL2 = (await spGet(lt(LIST_L2) + '/items?$select=Id,Title,Level1/Id&$expand=Level1')).value || [];
+const l2Key = (parentTitle, title) => parentTitle + ' ' + title;
+const l2Have = new Set(curL2.map((x) => {
+const pt = x.Level1 ? [...l1ByTitle.entries()].find(([, id]) => id === x.Level1.Id) : null;
+return l2Key(pt ? pt[0] : '', x.Title);
+}));
+const oldL2 = (L.l2 ? L.l2.items : []);
+const oldL2IdInfo = new Map();
+for (const x of oldL2) {
+const parentTitle = oldL1IdToTitle.get(x.Level1Id || (x.Level1 && x.Level1.Id)) || '';
+oldL2IdInfo.set(x.Id, { parentTitle, title: x.Title });
+if (l2Have.has(l2Key(parentTitle, x.Title))) continue;
+const newParentId = l1ByTitle.get(parentTitle);
+if (!newParentId) continue;
+await spPost(lt(LIST_L2) + '/items', {
+Title: x.Title, SortOrder: x.SortOrder || 0, Active: x.Active !== false, Level1Id: newParentId,
+});
+l2Have.add(l2Key(parentTitle, x.Title));
+}
+log('派生列を整理中…');
+await dropDerivedUserColumns();
+log('スキーマを再構築中…');
+await loadAllForRestore(state);
+await reflectFn(state, log);
+log('利用者を復元中…');
+const newL2 = (await spGet(lt(LIST_L2) + '/items?$select=Id,Title,Level1/Id&$expand=Level1')).value || [];
+const l1IdToTitle = new Map([...l1ByTitle.entries()].map(([t, id]) => [id, t]));
+const l2ColByKey = new Map(newL2.map((x) =>
+[l2Key(x.Level1 ? l1IdToTitle.get(x.Level1.Id) : '', x.Title), 'L2_' + x.Id]));
+const users = (L.users ? L.users.items : []);
+let restored = 0;
+for (const u of users) {
+log('利用者を復元中… (' + (++restored) + '/' + users.length + ')');
+const body = {
+Title: u.Title, Company: u.Company || '', Email: u.Email || '',
+ChangeType: u.ChangeType || '', Permission: u.Permission || '', OrgLevel1: u.OrgLevel1 || '',
+Notes: u.Notes || '', SystemDeleted: u.SystemDeleted === true, L2All: u.L2All === true,
+WorkStatus: u.WorkStatus || WORK_STATUS_DEFAULT,
+};
+for (const k of Object.keys(u)) {
+if (!k.startsWith('L2_') || u[k] !== true) continue;
+const info = oldL2IdInfo.get(+k.slice(3));
+if (!info) continue;
+const col = l2ColByKey.get(l2Key(info.parentTitle, info.title));
+if (col) body[col] = true;
+}
+try { await spPost(lt(LIST_USERS) + '/items', body); } catch { }
+}
+log('設定を復元中…');
+try {
+for (const it of (L.conf ? L.conf.items : [])) {
+if (it.Title && it.Value != null) await setConfValue(it.Title, it.Value);
+}
+for (const it of (L.common ? L.common.items : [])) {
+if (it.Title && it.Value != null) await setCommonSetting(it.Title, it.Value);
+}
+} catch { }
+return { l1: l1ByTitle.size, users: restored };
+}
+async function dropDerivedUserColumns() {
+if (!(await listId(LIST_USERS))) return;
+for (const pre of ['L2_', 'O2S_']) {
+const fields = (await spGet(lt(LIST_USERS) +
+"/fields?$select=InternalName&$filter=startswith(InternalName,'" + pre + "')")).value || [];
+for (const f of fields) {
+try { await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + f.InternalName + "')"); } catch { }
+}
+}
+try { await spDelete(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('OrgLevel2')"); } catch { }
+}
+async function loadAllForRestore(state) {
+const [r1, r2] = await Promise.all([
+spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
+spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+]);
+state.l1 = r1.value || [];
+state.l2 = r2.value || [];
+}
+async function setConfValue(key, value) {
+await ensureList(LIST_CONF, 'WebReg の設定');
+await ensureField(LIST_CONF, 'Value', '値', { FieldTypeKind: 3 });
+const j = await spGet(lt(LIST_CONF) + "/items?$select=Id&$filter=Title eq '" + key + "'&$top=1");
+const it = (j.value || [])[0];
+if (it) await spMerge(lt(LIST_CONF) + '/items(' + it.Id + ')', { Title: key, Value: value });
+else await spPost(lt(LIST_CONF) + '/items', { Title: key, Value: value });
+}
+function openSettingsModal(state, handlers) {
+return new Promise((resolve) => {
+openSettingsModalInner(state, resolve, handlers || {});
+});
+}
+function openSettingsModalInner(state, resolve, handlers) {
 const srcInfo = (window.__webregSource && window.__webregSource.base) || '直接実行(埋め込み/開発コンソール)';
 const isLocal = localStorage.getItem(LS_DEV_SOURCE) === 'local';
 const localBase = localStorage.getItem(LS_DEV_BASE) || DEFAULT_LOCAL_BASE;
@@ -2772,6 +2942,17 @@ const back = el(`
                 <label>管理者グループ(「権限を反映」時に全行へフルコントロールを付与)</label>
                 <div class="pr-checks pr-checks--perm" id="pr-admin-groups"><span class="pr-note">権限グループを取得中…</span></div>
                 <span class="pr-note">「${esc(LIST_CONF)}」リストに保存します(全員共有)。行の参照/更新グループの割当はマスタ管理の鍵アイコンから。</span>
+              </div>
+              <div class="pr-field">
+                <label>データ管理(バックアップ / リストア / リセット)</label>
+                <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
+                  <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
+                  <button class="pr-btn pr-btn--secondary" data-sact="restore">リストア(復元)</button>
+                  <button class="pr-btn pr-btn--danger" data-sact="reset">リストを空にする</button>
+                </div>
+                <span class="pr-note">バックアップ=管理用を含む全リストの内容・集計式・条件式・書式をJSONで保存。
+                  リストア=そのJSONから復元(空のリストからでも戻せます)。
+                  リセット=管理対象リストの全アイテムを削除して空にします(構造は残ります)。</span>
               </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
@@ -2822,6 +3003,9 @@ p.style.display = p.dataset.hubpanel === item.dataset.hub ? '' : 'none';
 });
 });
 back.querySelector('[data-sact="audit"]').addEventListener('click', () => { openAuditLogModal(); });
+back.querySelector('[data-sact="backup"]').addEventListener('click', () => { if (handlers.onBackup) handlers.onBackup(); });
+back.querySelector('[data-sact="restore"]').addEventListener('click', () => { close(); if (handlers.onRestore) handlers.onRestore(); });
+back.querySelector('[data-sact="reset"]').addEventListener('click', () => { close(); if (handlers.onReset) handlers.onReset(); });
 const dirInput = back.querySelector('#pr-bundle-dir');
 (async () => {
 const base = localBase.replace(/\/+$/, '');
@@ -4407,6 +4591,71 @@ render();
 toast(rows.length ? 'warn' : 'ok',
 rows.length ? '差分 ' + rows.length + '件が見つかりました' : '差分はありませんでした');
 }
+function backupFlow() {
+run('バックアップ', async () => {
+const now = new Date();
+const pad = (n) => String(n).padStart(2, '0');
+const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
+'-' + pad(now.getHours()) + pad(now.getMinutes());
+const data = await buildBackup(state, now.toISOString());
+const counts = Object.entries(data.lists)
+.map(([k, v]) => v ? k + ':' + v.items.length : null).filter(Boolean).join(' / ');
+backupDownload(data, 'WebReg_backup_' + (listPrefix() || '') + stamp + '.json');
+auditNote('バックアップを取得(' + counts + ')');
+toast('ok', 'バックアップを保存しました(' + counts + ')');
+});
+}
+async function restoreFlow() {
+const file = await pickJsonFile();
+if (!file) return;
+let backup;
+try {
+backup = JSON.parse(await file.text());
+} catch (e) {
+toast('err', 'JSONの読み込みに失敗しました — ' + e.message);
+return;
+}
+const lc = backup.lists || {};
+const ok = await modal({
+title: 'リストアの確認',
+message: 'バックアップから復元します: ' + LABEL_L1 + ' ' + ((lc.l1 && lc.l1.items.length) || 0) +
+'件 / ' + LABEL_L2 + ' ' + ((lc.l2 && lc.l2.items.length) || 0) + '件 / 利用者 ' +
+((lc.users && lc.users.items.length) || 0) + '件。既存の同名マスタ・利用者は重複追加しません' +
+'(空のリストに復元するのが確実です)。集計列・条件式・書式は再構築されます。',
+okLabel: '復元する',
+});
+if (!ok) return;
+run('リストア', async () => {
+auditNote('バックアップから復元(' + (backup.exportedAt || '') + ')');
+const r = await restoreBackup(state, backup, setStatus, syncMastersToUserList);
+await reload();
+toast('ok', 'リストアが完了しました(利用者 ' + r.users + '件)');
+});
+}
+async function resetFlow() {
+const ok = await modal({
+title: 'リストを空にする',
+message: '「' + LIST_USERS + '」「' + LIST_L1 + '」「' + LIST_L2 + '」「' + LIST_AUDIT +
+'」の全アイテムを削除して空にします。この操作は元に戻せません(先にバックアップ取得を推奨)。',
+okLabel: '空にする',
+danger: true,
+});
+if (!ok) return;
+const ok2 = await modal({
+title: '最終確認',
+message: '本当に全アイテムを削除しますか？ この操作は取り消せません。',
+okLabel: '削除を実行',
+danger: true,
+});
+if (!ok2) return;
+run('リセット', async () => {
+auditNote('管理対象リストの全アイテムを削除(リセット)');
+const s = await resetAllItems(setStatus);
+await reload();
+toast('ok', 'リストを空にしました(削除: ' +
+Object.entries(s).map(([, n]) => n).reduce((a, b) => a + b, 0) + '件)');
+});
+}
 async function userBulkFlow() {
 const ids = [...selectedUserIds];
 if (!ids.length) return;
@@ -4627,7 +4876,11 @@ const items = kind === 'l1' ? state.l1
 const item = items && items.find((x) => x.Id === id);
 if (act === 'close') { root.remove(); return; }
 if (act === 'nav') { state.view = t.dataset.view; render(); return; }
-if (act === 'settings') { openSettingsModal(state).then(() => run('再読込', reload)); return; }
+if (act === 'settings') {
+openSettingsModal(state, { onBackup: backupFlow, onRestore: restoreFlow, onReset: resetFlow })
+.then(() => run('再読込', reload));
+return;
+}
 if (act === 'reload') { run('再読込', reload); return; }
 if (act === 'setup') {
 run('セットアップ', async () => {
