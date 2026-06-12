@@ -126,24 +126,29 @@ async function applyPermToItem(ctx, itemId, l1Title) {
   return 'applied';
 }
 
-// 全アイテムへ反映。log(msg) で進捗を出す
-async function applyPermissionsAll(state, log) {
+// 指定した行へ反映。targets: [{id, l1}]。log(msg) で進捗を出す
+async function applyPermissionsToItems(state, targets, log) {
   const ctx = await buildPermContext(state);
-  const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
   const summary = { applied: 0, adminOnly: 0, errors: [] };
   let done = 0;
-  for (const it of items) {
+  for (const t of targets) {
     done++;
-    log('権限を反映中… (' + done + '/' + items.length + ')');
+    log('権限を反映中… (' + done + '/' + targets.length + ')');
     try {
-      await applyPermToItem(ctx, it.Id, it.OrgLevel1);
-      const hasGroups = (ctx.cfgByTitle.get(it.OrgLevel1 || '') || []).length > 0;
+      await applyPermToItem(ctx, t.id, t.l1);
+      const hasGroups = (ctx.cfgByTitle.get(t.l1 || '') || []).length > 0;
       summary[hasGroups ? 'applied' : 'adminOnly']++;
     } catch (e) {
-      summary.errors.push({ id: it.Id, msg: e.message });
+      summary.errors.push({ id: t.id, msg: e.message });
     }
   }
   return summary;
+}
+
+// 全アイテムへ反映(「権限を反映」ボタン用)
+async function applyPermissionsAll(state, log) {
+  const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+  return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
 }
 
 // 登録/編集直後の1行に適用(割当が1件も無ければ何もしない)。失敗は警告どまり

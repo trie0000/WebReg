@@ -282,6 +282,7 @@
       let added = 0;
       let updated = 0;
       const rowErrors = [];
+      const touched = []; // 権限の再適用対象(追加/更新した行のみ)
       let done = 0;
       for (const t of plan.targets) {
         done++;
@@ -296,9 +297,11 @@
               if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
             }
             await updateItem(LIST_USERS, exist.Id, withOrg2Text(body, exist));
+            touched.push({ id: exist.Id, l1: t.org1 });
             updated++;
           } else {
-            await addItem(LIST_USERS, withOrg2Text(body));
+            const j = await addItem(LIST_USERS, withOrg2Text(body));
+            if (j && j.Id) touched.push({ id: j.Id, l1: t.org1 });
             added++;
           }
         } catch (e) {
@@ -306,9 +309,9 @@
         }
       }
       await reload();
-      // 4) 権限グループ割当があれば、行レベル権限も追従させる(冪等な全行反映)
-      if (hasAnyPermConfig(state)) {
-        const ps = await applyPermissionsAll(state, setStatus);
+      // 4) 権限グループ割当があれば、取込で追加/更新した行だけ行レベル権限を追従
+      if (hasAnyPermConfig(state) && touched.length) {
+        const ps = await applyPermissionsToItems(state, touched, setStatus);
         if (ps.errors.length) {
           toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
         }
@@ -400,17 +403,20 @@
       const total = plan.adds.length + changed.length + plan.deletes.length;
       let done = 0;
       const rowErrors = [];
+      const touched = []; // 権限の再適用対象(追加/更新した行のみ。削除は組織区分1が変わらないため不要)
       const step = () => setStatus('Excelを取込中… (' + (++done) + '/' + total + ')');
       for (const e of plan.adds) {
         step();
         try {
-          await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+          const j = await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+          if (j && j.Id) touched.push({ id: j.Id, l1: e.l1 });
         } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
       }
       for (const { e, u } of changed) {
         step();
         try {
           await updateItem(LIST_USERS, u.Id, withOrg2Text(buildXlsxBody(state, e, u), u));
+          touched.push({ id: u.Id, l1: e.l1 });
         } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
       }
       for (const { u } of plan.deletes) {
@@ -420,9 +426,9 @@
         } catch (err) { rowErrors.push({ name: u.Title, msg: err.message }); }
       }
       await reload();
-      // 4) 権限グループ割当があれば行レベル権限も追従
-      if (hasAnyPermConfig(state)) {
-        const ps = await applyPermissionsAll(state, setStatus);
+      // 4) 権限グループ割当があれば、取込で追加/更新した行だけ行レベル権限を追従
+      if (hasAnyPermConfig(state) && touched.length) {
+        const ps = await applyPermissionsToItems(state, touched, setStatus);
         if (ps.errors.length) {
           toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
         }

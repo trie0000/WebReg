@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-669bef7b" !== 'undefined' ? "0.1.0-669bef7b" : 'dev';
+const BUILD = typeof "0.1.0-2f2590e8" !== 'undefined' ? "0.1.0-2f2590e8" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -596,23 +596,26 @@ await assign(gid, ctx.roles.edit.Id);
 }
 return 'applied';
 }
-async function applyPermissionsAll(state, log) {
+async function applyPermissionsToItems(state, targets, log) {
 const ctx = await buildPermContext(state);
-const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
 const summary = { applied: 0, adminOnly: 0, errors: [] };
 let done = 0;
-for (const it of items) {
+for (const t of targets) {
 done++;
-log('権限を反映中… (' + done + '/' + items.length + ')');
+log('権限を反映中… (' + done + '/' + targets.length + ')');
 try {
-await applyPermToItem(ctx, it.Id, it.OrgLevel1);
-const hasGroups = (ctx.cfgByTitle.get(it.OrgLevel1 || '') || []).length > 0;
+await applyPermToItem(ctx, t.id, t.l1);
+const hasGroups = (ctx.cfgByTitle.get(t.l1 || '') || []).length > 0;
 summary[hasGroups ? 'applied' : 'adminOnly']++;
 } catch (e) {
-summary.errors.push({ id: it.Id, msg: e.message });
+summary.errors.push({ id: t.id, msg: e.message });
 }
 }
 return summary;
+}
+async function applyPermissionsAll(state, log) {
+const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
 }
 async function applyPermAfterWrite(state, itemId, l1Title) {
 if (!hasAnyPermConfig(state)) return;
@@ -3338,6 +3341,7 @@ const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) ||
 let added = 0;
 let updated = 0;
 const rowErrors = [];
+const touched = [];
 let done = 0;
 for (const t of plan.targets) {
 done++;
@@ -3351,9 +3355,11 @@ for (const k of Object.keys(exist)) {
 if (k.startsWith('L2_') && exist[k] === true && !(k in body)) body[k] = false;
 }
 await updateItem(LIST_USERS, exist.Id, withOrg2Text(body, exist));
+touched.push({ id: exist.Id, l1: t.org1 });
 updated++;
 } else {
-await addItem(LIST_USERS, withOrg2Text(body));
+const j = await addItem(LIST_USERS, withOrg2Text(body));
+if (j && j.Id) touched.push({ id: j.Id, l1: t.org1 });
 added++;
 }
 } catch (e) {
@@ -3361,8 +3367,8 @@ rowErrors.push({ name: t.name, msg: e.message });
 }
 }
 await reload();
-if (hasAnyPermConfig(state)) {
-const ps = await applyPermissionsAll(state, setStatus);
+if (hasAnyPermConfig(state) && touched.length) {
+const ps = await applyPermissionsToItems(state, touched, setStatus);
 if (ps.errors.length) {
 toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
 }
@@ -3444,17 +3450,20 @@ state.choices.permission = merged;
 const total = plan.adds.length + changed.length + plan.deletes.length;
 let done = 0;
 const rowErrors = [];
+const touched = [];
 const step = () => setStatus('Excelを取込中… (' + (++done) + '/' + total + ')');
 for (const e of plan.adds) {
 step();
 try {
-await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+const j = await addItem(LIST_USERS, withOrg2Text(buildXlsxBody(state, e)));
+if (j && j.Id) touched.push({ id: j.Id, l1: e.l1 });
 } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
 }
 for (const { e, u } of changed) {
 step();
 try {
 await updateItem(LIST_USERS, u.Id, withOrg2Text(buildXlsxBody(state, e, u), u));
+touched.push({ id: u.Id, l1: e.l1 });
 } catch (err) { rowErrors.push({ name: e.name, msg: err.message }); }
 }
 for (const { u } of plan.deletes) {
@@ -3464,8 +3473,8 @@ await updateItem(LIST_USERS, u.Id, { SystemDeleted: true });
 } catch (err) { rowErrors.push({ name: u.Title, msg: err.message }); }
 }
 await reload();
-if (hasAnyPermConfig(state)) {
-const ps = await applyPermissionsAll(state, setStatus);
+if (hasAnyPermConfig(state) && touched.length) {
+const ps = await applyPermissionsToItems(state, touched, setStatus);
 if (ps.errors.length) {
 toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
 }
