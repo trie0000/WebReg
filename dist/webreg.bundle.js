@@ -24,6 +24,10 @@ LIST_CONF = p + BASE_LIST_CONF;
 applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['更新者', '閲覧者'];
+const NO_CHANGE = '変更なし';
+const WORK_STATUS = ['作業待ち', '改廃済み', '結果確認済み'];
+const WORK_STATUS_DEFAULT = '作業待ち';
+const WORK_STATUS_DONE = '結果確認済み';
 const LS_DEBUG = 'webreg.debug';
 const isDebug = () => {
 try { return localStorage.getItem(LS_DEBUG) === '1'; } catch { return false; }
@@ -43,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-c2b8f4d8" !== 'undefined' ? "0.1.0-c2b8f4d8" : 'dev';
+const BUILD = typeof "0.1.0-637af380" !== 'undefined' ? "0.1.0-637af380" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -264,6 +268,15 @@ await spMerge(path, { Title: display, Choices: choices });
 await spMergeVerbose(path, 'SP.FieldChoice', { Title: display, Choices: { results: choices } });
 }
 }
+async function ensureWorkStatusColumn() {
+if (await fieldExists(LIST_USERS, 'WorkStatus')) return;
+const xml = "<Field Type='Choice' DisplayName='WorkStatus' Name='WorkStatus' StaticName='WorkStatus'" +
+" Format='Dropdown'><Default>" + xmlEsc(WORK_STATUS_DEFAULT) + '</Default><CHOICES>' +
+WORK_STATUS.map((c) => '<CHOICE>' + xmlEsc(c) + '</CHOICE>').join('') + '</CHOICES></Field>';
+await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('WorkStatus')", { Title: '改廃ステータス' });
+try { await addViewFields(LIST_USERS, ['WorkStatus']); } catch { }
+}
 async function ensureUserList(log) {
 if (await listId(LIST_USERS)) return false;
 log('「' + LIST_USERS + '」を作成中…');
@@ -290,6 +303,7 @@ const activeL2 = state.l2
 const summary = { createdList: false, l1Count: activeL1.length, added: 0, renamed: 0, l2Count: activeL2.length };
 summary.createdList = await ensureUserList(log);
 await ensureField(LIST_USERS, 'L2All', '組織区分2のすべて', { FieldTypeKind: 8, DefaultValue: '0' });
+await ensureWorkStatusColumn();
 log(LABEL_L1 + 'の選択肢を更新中…');
 await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
 try {
@@ -1225,6 +1239,16 @@ const css = `
   background:rgba(196,127,28,.14); color:var(--warn);
 }
 #${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
+/* ---- 改廃ステータス(インラインselect) ---- */
+#${ROOT_ID} .pr-rst{ height:26px !important; min-height:26px !important; padding:0 var(--s-3) !important; font-size:var(--fs-sm) !important; border-radius:var(--r-2) !important; }
+#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.14) !important; color:var(--warn) !important; }
+#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft) !important; color:var(--accent-strong) !important; }
+#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3) !important; color:var(--ink-3) !important; }
+/* ---- 実機差分チェックの区分バッジ ---- */
+#${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }
+#${ROOT_ID} .pr-cmp--diff{ background:rgba(196,127,28,.14); color:var(--warn); }
+#${ROOT_ID} .pr-cmp--add{ background:var(--accent-soft); color:var(--accent-strong); }
+#${ROOT_ID} .pr-cmp--miss{ background:rgba(184,83,74,.14); color:var(--danger); }
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
 #${ROOT_ID} .pr-diff-item{
@@ -2154,6 +2178,240 @@ document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
 back.querySelector('#bk-ct').focus();
 });
+}
+const REQS_GRID_KEY = 'reqs';
+const reqFilter = { q: '', hideVerified: true };
+const isReqTarget = (u) => {
+const ct = (u.ChangeType || '').trim();
+return !!ct && ct !== NO_CHANGE;
+};
+const reqStatusOf = (u) => u.WorkStatus || WORK_STATUS_DEFAULT;
+const REQ_COLS = [
+{ key: 'name', label: '利用者名', w: '160px', val: (u) => u.Title || '' },
+{ key: 'company', label: '会社名', w: '130px', val: (u) => u.Company || '' },
+{ key: 'email', label: 'メールアドレス', w: '170px', val: (u) => u.Email || '' },
+{ key: 'changeType', label: '変更区分', w: '80px', val: (u) => u.ChangeType || '' },
+{ key: 'permission', label: '権限', w: '80px', val: (u) => u.Permission || '' },
+{ key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },
+{ key: 'org2', label: '', w: '200px', val: null },
+{ key: 'status', label: '改廃ステータス', w: '130px', val: (u) => reqStatusOf(u) },
+{ key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
+];
+const reqColLabel = (c) => (c.key === 'org1' ? LABEL_L1 : c.key === 'org2' ? LABEL_L2 : c.label);
+const reqCellText = (state, c, u) =>
+(c.key === 'org2' ? userOrg2Text(state, u)
+: c.key === 'modified' ? userCellText(state, USER_COLS[USER_COLS.length - 1], u)
+: c.val(u));
+function visibleReqs(state) {
+const f = reqFilter;
+const q = f.q.trim().toLowerCase();
+let list = state.users.filter((u) => {
+if (!isReqTarget(u)) return false;
+if (f.hideVerified && reqStatusOf(u) === WORK_STATUS_DONE) return false;
+if (q) {
+const hay = REQ_COLS.map((c) => reqCellText(state, c, u)).join(' ').toLowerCase();
+if (!hay.includes(q)) return false;
+}
+return true;
+});
+const s = gridSort(REQS_GRID_KEY, 'modified');
+const col = REQ_COLS.find((c) => c.key === s.by) || REQ_COLS[REQ_COLS.length - 1];
+const dir = s.dir === 'asc' ? 1 : -1;
+return [...list].sort((a, b) =>
+reqCellText(state, col, a).localeCompare(reqCellText(state, col, b), 'ja') * dir || (a.Id - b.Id) * dir);
+}
+function reqStatusClass(s) {
+if (s === WORK_STATUS_DONE) return 'pr-rst--verified';
+if (s === '改廃済み') return 'pr-rst--done';
+return 'pr-rst--wait';
+}
+function reqViewHtml(state) {
+if (!state.usersReady) {
+return '<div class="pr-hero"><h4>「' + esc(LIST_USERS) + '」リストがまだありません</h4>' +
+'<p>利用者一覧で登録するとここに改廃依頼が表示されます。</p></div>';
+}
+const list = visibleReqs(state);
+const order = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
+const cols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
+const sort = gridSort(REQS_GRID_KEY, 'modified');
+const total = state.users.filter(isReqTarget).length;
+const thHtml = cols.map((c) => {
+const active = sort.by === c.key;
+const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
+esc(reqColLabel(c)) + arrow + '</th>';
+}).join('');
+const statusCell = (u) => {
+const cur = reqStatusOf(u);
+return '<select class="pr-input pr-rst ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
+WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
+'</select>';
+};
+const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
+cols.map((c) => c.key === 'status'
+? '<td>' + statusCell(u) + '</td>'
+: '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
+'</tr>';
+return `
+    <div class="pr-sub pr-sub--users">
+      <b>改廃依頼一覧</b><span class="pr-count">${list.length}件${list.length !== total ? ' / 対象' + total + '件' : ''}</span>
+      <span class="pr-note">変更区分が「${esc(NO_CHANGE)}」以外＝実機への登録作業待ち</span>
+      <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="SPリストを新しいタブで開く">${ico('external')}SPで開く</button>
+    </div>
+    <div class="pr-toolbar pr-toolbar--users">
+      <input type="text" class="pr-input" id="pr-rfilter-q" placeholder="検索(全列)" value="${esc(reqFilter.q)}">
+      <label class="pr-check"><input type="checkbox" id="pr-rfilter-verified" ${reqFilter.hideVerified ? 'checked' : ''}>結果確認済みを隠す</label>
+    </div>
+    <div class="pr-rows">
+      <table class="pr-utable" data-grid="reqs">
+        <colgroup>
+          ${cols.map((c) => '<col style="width:' + gridColWidth(REQS_GRID_KEY, c.key, c.w) + '">').join('')}
+        </colgroup>
+        <thead><tr>${thHtml}</tr></thead>
+        <tbody>${list.map(rowHtml).join('') ||
+'<tr><td colspan="' + cols.length + '" class="pr-empty">改廃依頼はありません</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+function reqAfterRender(app, state, ctx) {
+const table = app.querySelector('.pr-utable[data-grid="reqs"]');
+if (!table) return;
+const order = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
+const orderedCols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
+attachGrid(table, {
+tableKey: REQS_GRID_KEY,
+colKeys: order,
+defaults: orderedCols.map((c) => c.w),
+onReorder: (fromKey, toKey) => {
+if (fromKey && toKey) {
+const cur = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
+cur.splice(cur.indexOf(toKey), 0, cur.splice(cur.indexOf(fromKey), 1)[0]);
+gridWriteOrder(REQS_GRID_KEY, cur);
+}
+ctx.rerender();
+},
+});
+table.querySelector('thead').addEventListener('click', (e) => {
+if (table.dataset.dragJustEnded) return;
+const th = e.target.closest('th[data-col]');
+if (!th) return;
+const s = gridSort(REQS_GRID_KEY, 'modified');
+gridSetSort(REQS_GRID_KEY, th.dataset.col,
+s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
+ctx.rerender();
+});
+app.querySelector('#pr-rfilter-q').addEventListener('input', (e) => {
+reqFilter.q = e.target.value;
+const tmp = document.createElement('div');
+tmp.innerHTML = reqViewHtml(state);
+table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
+app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
+});
+app.querySelector('#pr-rfilter-verified').addEventListener('change', (e) => {
+reqFilter.hideVerified = e.target.checked;
+ctx.rerender();
+});
+table.addEventListener('change', (e) => {
+const sel = e.target.closest('[data-reqstatus]');
+if (!sel) return;
+ctx.onStatusChange(+sel.dataset.reqstatus, sel.value);
+});
+table.addEventListener('click', (e) => {
+if (e.target.closest('[data-reqstatus]')) return;
+const tr = e.target.closest('tr[data-uid]');
+if (!tr) return;
+if (window.getSelection && String(window.getSelection())) return;
+const item = state.users.find((u) => u.Id === +tr.dataset.uid);
+if (item) ctx.onEdit(item);
+});
+}
+function spOrg2Set(state, u) {
+return activeL2Of(state, u.OrgLevel1 || '')
+.filter((m) => u.L2All === true || u['L2_' + m.Id] === true)
+.map((m) => m.Title);
+}
+function buildCompareResult(state, targets) {
+const active = state.users.filter((u) => u.SystemDeleted !== true);
+const idx = buildUserIndex(active);
+const rows = [];
+const matched = new Set();
+for (const t of targets) {
+const u = findExistingUser(idx, t.org1, t.email, t.name);
+if (!u) {
+rows.push({ type: 'リスト未登録', name: t.name, org1: t.org1,
+detail: '実機にあるがリストに未登録(' + (t.permission || '権限なし') + ')' });
+continue;
+}
+matched.add(u.Id);
+const d = [];
+if ((u.Permission || '') !== (t.permission || '')) {
+d.push('権限: リスト「' + (u.Permission || '空') + '」/ 実機「' + (t.permission || '空') + '」');
+}
+if ((u.Company || '') !== (t.company || '')) {
+d.push('会社名: リスト「' + (u.Company || '空') + '」/ 実機「' + (t.company || '空') + '」');
+}
+const sp = spOrg2Set(state, u).slice().sort();
+const ex = (t.org2names || []).slice().sort();
+if (JSON.stringify(sp) !== JSON.stringify(ex)) {
+const onlySp = sp.filter((x) => !ex.includes(x));
+const onlyEx = ex.filter((x) => !sp.includes(x));
+d.push(LABEL_L2 + ': ' + [onlySp.map((x) => 'リストのみ「' + x + '」').join('、'),
+onlyEx.map((x) => '実機のみ「' + x + '」').join('、')].filter(Boolean).join(' / '));
+}
+if (t.retired === true) d.push('在籍状態: 実機は退職、リストは有効のまま');
+if (d.length) rows.push({ type: '差分あり', name: u.Title, org1: u.OrgLevel1, detail: d.join(' / ') });
+}
+for (const u of active) {
+if (matched.has(u.Id)) continue;
+rows.push({ type: '実機未登録', name: u.Title, org1: u.OrgLevel1,
+detail: 'リストにあるが実機CSVに無い' });
+}
+const rank = { '差分あり': 0, 'リスト未登録': 1, '実機未登録': 2 };
+rows.sort((a, b) => (rank[a.type] - rank[b.type]) ||
+a.org1.localeCompare(b.org1, 'ja') || a.name.localeCompare(b.name, 'ja'));
+return rows;
+}
+const COMPARE_TYPE_CLASS = {
+'差分あり': 'pr-cmp--diff', 'リスト未登録': 'pr-cmp--add', '実機未登録': 'pr-cmp--miss',
+};
+function compareViewHtml(state) {
+const res = state.compareResult;
+const head = `
+    <div class="pr-syncbar">
+      <span>実機の利用者情報CSV(CSVインポートと同じ形式)を取り込み、「${esc(LIST_USERS)}」リストとの差分を表示します(読み取り専用)。</span>
+      <button class="pr-btn pr-btn--primary" data-act="compare-import" ${state.usersReady ? '' : 'disabled'}>${ico('plus')}実機CSVを選んで比較</button>
+    </div>`;
+if (!res) {
+return head + '<div class="pr-hero"><h4>実機CSVを取り込んでください</h4>' +
+'<p>取込対象の権限(更新者/閲覧者に対応する区分)のみ比較します。</p></div>';
+}
+if (!res.rows.length) {
+return head + '<div class="pr-hero"><h4>差分はありません</h4>' +
+'<p>実機CSV ' + res.scanned + '件とリストの登録内容は一致しています。</p></div>';
+}
+const counts = { '差分あり': 0, 'リスト未登録': 0, '実機未登録': 0 };
+for (const r of res.rows) counts[r.type]++;
+const rowsHtml = res.rows.map((r) => `
+    <tr>
+      <td><span class="pr-cmp ${COMPARE_TYPE_CLASS[r.type] || ''}">${esc(r.type)}</span></td>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.org1)}</td>
+      <td>${esc(r.detail)}</td>
+    </tr>`).join('');
+return head + `
+    <div class="pr-sub pr-sub--users">
+      <b>差分 ${res.rows.length}件</b>
+      <span class="pr-count">差分あり ${counts['差分あり']} / リスト未登録 ${counts['リスト未登録']} / 実機未登録 ${counts['実機未登録']}</span>
+      <span class="pr-note">実機CSV ${res.scanned}件と比較</span>
+    </div>
+    <div class="pr-rows">
+      <table class="pr-utable">
+        <colgroup><col style="width:96px"><col style="width:160px"><col style="width:140px"><col></colgroup>
+        <thead><tr><th>区分</th><th>利用者名</th><th>${esc(LABEL_L1)}</th><th>内容</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
 }
 function openSettingsModal(state) {
 return new Promise((resolve) => {
@@ -3785,6 +4043,32 @@ rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? '
 }
 });
 }
+async function compareImportFlow(testText) {
+let text = testText;
+if (text == null) {
+const file = await pickCsvFile();
+if (!file) return;
+try {
+text = decodeCsvBuffer(await file.arrayBuffer());
+} catch (e) {
+toast('err', 'ファイルの読み込みに失敗しました — ' + e.message);
+return;
+}
+}
+let plan;
+try {
+plan = buildImportPlan(state, parseCsvText(text));
+} catch (e) {
+toast('err', 'CSVの解析に失敗しました — ' + e.message);
+return;
+}
+const rows = buildCompareResult(state, plan.targets);
+state.compareResult = { rows, scanned: plan.targets.length };
+state.view = 'compare';
+render();
+toast(rows.length ? 'warn' : 'ok',
+rows.length ? '差分 ' + rows.length + '件が見つかりました' : '差分はありませんでした');
+}
 async function userBulkFlow() {
 const ids = [...selectedUserIds];
 if (!ids.length) return;
@@ -3893,7 +4177,10 @@ function usersView() {
 return usersViewHtml(state);
 }
 function render() {
-const views = { users: usersView, master: masterView, notify: notifyViewHtml };
+const views = {
+users: usersView, master: masterView, notify: notifyViewHtml,
+reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
+};
 const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
         ${label}<small>${sub}</small></button>`;
@@ -3910,6 +4197,8 @@ app.innerHTML = `
         <nav class="pr-side" aria-label="メニュー">
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
+          ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
+          ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
           ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
@@ -3918,7 +4207,20 @@ app.innerHTML = `
       <div class="pr-status">${state.ready ? '準備OK' : 'マスタリスト未作成'} / ${esc(BUILD)}</div>`;
 if (state.view === 'users') {
 usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+} else if (state.view === 'reqs') {
+reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
 }
+}
+function reqPendingCount() {
+if (!state.usersReady) return 0;
+return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
+}
+function userStatusChange(id, status) {
+run('ステータス更新', async () => {
+await ensureWorkStatusColumn();
+await updateItem(LIST_USERS, id, { WorkStatus: status });
+await reload();
+});
 }
 async function reload() {
 await checkReady();
@@ -3975,6 +4277,7 @@ if (act === 'user-add') { userAddFlow(); return; }
 if (act === 'user-import') { userImportFlow(); return; }
 if (act === 'user-export') { userExportFlow(); return; }
 if (act === 'user-import-xlsx') { userImportXlsxFlow(); return; }
+if (act === 'compare-import') { compareImportFlow(); return; }
 if (act === 'user-bulk') { userBulkFlow(); return; }
 if (act === 'user-del-selected') { userDeleteFlow(); return; }
 if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -4174,6 +4477,7 @@ build: BUILD,
 importCsvText: (t) => userImportFlow(t),
 exportXlsx: (titles) => buildExportXlsx(state, titles),
 importXlsx: (buf) => userImportXlsxFlow(buf),
+compareCsvText: (t) => compareImportFlow(t),
 };
 startUpdateWatcher(BUILD);
 if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);

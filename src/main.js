@@ -461,6 +461,35 @@
     });
   }
 
+  // 実機差分チェック: 実機CSVを取込み、リストとの差分を state.compareResult に格納して表示
+  // (testText を渡すとファイル選択をスキップ — テスト用)
+  async function compareImportFlow(testText) {
+    let text = testText;
+    if (text == null) {
+      const file = await pickCsvFile();
+      if (!file) return;
+      try {
+        text = decodeCsvBuffer(await file.arrayBuffer());
+      } catch (e) {
+        toast('err', 'ファイルの読み込みに失敗しました — ' + e.message);
+        return;
+      }
+    }
+    let plan;
+    try {
+      plan = buildImportPlan(state, parseCsvText(text));
+    } catch (e) {
+      toast('err', 'CSVの解析に失敗しました — ' + e.message);
+      return;
+    }
+    const rows = buildCompareResult(state, plan.targets);
+    state.compareResult = { rows, scanned: plan.targets.length };
+    state.view = 'compare';
+    render();
+    toast(rows.length ? 'warn' : 'ok',
+      rows.length ? '差分 ' + rows.length + '件が見つかりました' : '差分はありませんでした');
+  }
+
   async function userBulkFlow() {
     const ids = [...selectedUserIds];
     if (!ids.length) return;
@@ -576,7 +605,10 @@
   }
 
   function render() {
-    const views = { users: usersView, master: masterView, notify: notifyViewHtml };
+    const views = {
+      users: usersView, master: masterView, notify: notifyViewHtml,
+      reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
+    };
     const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
         ${label}<small>${sub}</small></button>`;
@@ -594,6 +626,8 @@
         <nav class="pr-side" aria-label="メニュー">
           <div class="pr-side-head">メニュー</div>
           ${navItem('users', '利用者一覧', '登録状況の確認ビュー')}
+          ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
+          ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
           ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
@@ -603,7 +637,24 @@
 
     if (state.view === 'users') {
       usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+    } else if (state.view === 'reqs') {
+      reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
     }
+  }
+
+  // 改廃依頼(作業待ち=結果確認済み以外の対象)の件数。ナビのバッジに使う
+  function reqPendingCount() {
+    if (!state.usersReady) return 0;
+    return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
+  }
+
+  // 改廃ステータスのインライン変更(列が未作成の既存リストでも動くよう先に確保)
+  function userStatusChange(id, status) {
+    run('ステータス更新', async () => {
+      await ensureWorkStatusColumn();
+      await updateItem(LIST_USERS, id, { WorkStatus: status });
+      await reload();
+    });
   }
 
   async function reload() {
@@ -668,6 +719,7 @@
     if (act === 'user-import') { userImportFlow(); return; }
     if (act === 'user-export') { userExportFlow(); return; }
     if (act === 'user-import-xlsx') { userImportXlsxFlow(); return; }
+    if (act === 'compare-import') { compareImportFlow(); return; }
     if (act === 'user-bulk') { userBulkFlow(); return; }
     if (act === 'user-del-selected') { userDeleteFlow(); return; }
     if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
@@ -881,6 +933,7 @@
     importCsvText: (t) => userImportFlow(t),
     exportXlsx: (titles) => buildExportXlsx(state, titles),
     importXlsx: (buf) => userImportXlsxFlow(buf),
+    compareCsvText: (t) => compareImportFlow(t),
   };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 

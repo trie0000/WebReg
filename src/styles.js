@@ -320,6 +320,18 @@ const css = `
 }
 #${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
 
+/* ---- 改廃ステータス(インラインselect) ---- */
+#${ROOT_ID} .pr-rst{ height:26px !important; min-height:26px !important; padding:0 var(--s-3) !important; font-size:var(--fs-sm) !important; border-radius:var(--r-2) !important; }
+#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.14) !important; color:var(--warn) !important; }
+#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft) !important; color:var(--accent-strong) !important; }
+#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3) !important; color:var(--ink-3) !important; }
+
+/* ---- 実機差分チェックの区分バッジ ---- */
+#${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }
+#${ROOT_ID} .pr-cmp--diff{ background:rgba(196,127,28,.14); color:var(--warn); }
+#${ROOT_ID} .pr-cmp--add{ background:var(--accent-soft); color:var(--accent-strong); }
+#${ROOT_ID} .pr-cmp--miss{ background:rgba(184,83,74,.14); color:var(--danger); }
+
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
 #${ROOT_ID} .pr-diff-item{

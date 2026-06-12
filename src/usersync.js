@@ -37,6 +37,17 @@ async function setChoices(listTitle, internal, display, choices, fillIn) {
   }
 }
 
+// 改廃ステータス列(WorkStatus)を未作成時のみ作成する(冪等)
+async function ensureWorkStatusColumn() {
+  if (await fieldExists(LIST_USERS, 'WorkStatus')) return;
+  const xml = "<Field Type='Choice' DisplayName='WorkStatus' Name='WorkStatus' StaticName='WorkStatus'" +
+    " Format='Dropdown'><Default>" + xmlEsc(WORK_STATUS_DEFAULT) + '</Default><CHOICES>' +
+    WORK_STATUS.map((c) => '<CHOICE>' + xmlEsc(c) + '</CHOICE>').join('') + '</CHOICES></Field>';
+  await spPost(lt(LIST_USERS) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+  await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('WorkStatus')", { Title: '改廃ステータス' });
+  try { await addViewFields(LIST_USERS, ['WorkStatus']); } catch { /* ignore */ }
+}
+
 async function ensureUserList(log) {
   if (await listId(LIST_USERS)) return false;
   log('「' + LIST_USERS + '」を作成中…');
@@ -69,6 +80,9 @@ async function syncMastersToUserList(state, log) {
 
   // 「組織区分2のすべて」フラグ列(チェックで全組織区分2を選択扱いにする)
   await ensureField(LIST_USERS, 'L2All', '組織区分2のすべて', { FieldTypeKind: 8, DefaultValue: '0' });
+
+  // 改廃ステータス列(実機への登録作業の進捗。改廃依頼一覧で使う)
+  await ensureWorkStatusColumn();
 
   // 組織区分1: 選択肢列を有効マスタで更新
   log(LABEL_L1 + 'の選択肢を更新中…');
