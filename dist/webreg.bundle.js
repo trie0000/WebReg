@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-ff228c33" !== 'undefined' ? "0.1.0-ff228c33" : 'dev';
+const BUILD = typeof "0.1.0-81621ac3" !== 'undefined' ? "0.1.0-81621ac3" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1995,10 +1995,10 @@ const fieldRow = (label, inner) => `
       <div class="pr-field"><label>${label}</label>${inner}</div>`;
 const selOpts = (opts, cur) => opts.map((c) =>
 '<option' + (c === cur ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
-const ctOpts = (opts, cur, edit) => {
-let h = '<option value=""' + (edit && !cur ? ' selected' : '') + '>（空欄）</option>';
-opts.forEach((c, i) => {
-h += '<option' + ((cur === c) || (!edit && i === 0) ? ' selected' : '') + '>' + esc(c) + '</option>';
+const ctOpts = (opts, cur) => {
+let h = '<option value=""' + (cur ? '' : ' selected') + '>（空欄）</option>';
+opts.forEach((c) => {
+h += '<option' + (cur === c ? ' selected' : '') + '>' + esc(c) + '</option>';
 });
 return h;
 };
@@ -2009,7 +2009,7 @@ const back = el(`
           ${fieldRow('利用者名 <span class="pr-req">*</span>', '<input type="text" class="pr-input" id="uf-name">')}
           ${fieldRow('会社名', '<input type="text" class="pr-input" id="uf-company">')}
           ${fieldRow('メールアドレス', '<input type="text" class="pr-input" id="uf-email">')}
-          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${ctOpts(state.choices.changeType, existing && existing.ChangeType, isEdit)}</select>`)}
+          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${ctOpts(state.choices.changeType, existing && existing.ChangeType)}</select>`)}
           ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${selOpts(state.choices.permission, existing && existing.Permission)}</select>`)}
           ${fieldRow(esc(LABEL_L1), `<select class="pr-input" id="uf-l1">${
 activeL1.map((x) => '<option' + (existing && existing.OrgLevel1 === x.Title ? ' selected' : '') + '>' + esc(x.Title) + '</option>').join('')}</select>`)}
