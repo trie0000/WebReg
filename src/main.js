@@ -148,7 +148,14 @@
     if (isDebug()) console.log('[WebReg] status:', msg);
   }
 
-  // 操作を直列化しつつ busy 表示。エラーは右上トーストに出す(コピー可)
+  // 参照系(更新を伴わない)操作。操作ログには残さない
+  const AUDIT_SKIP = new Set(['読込', '再読込']);
+  // run() に渡す監査メモ。fn 内で auditNote(text) を呼ぶとその操作のログ内容になる
+  let _auditNote = '';
+  const auditNote = (text) => { _auditNote = text; };
+
+  // 操作を直列化しつつ busy 表示。エラーは右上トーストに出す(コピー可)。
+  // 更新系の操作は成功時に操作ログ(SPリスト)へ best-effort で記録する
   async function run(label, fn) {
     if (state.busy) return;
     state.busy = true;
@@ -156,10 +163,12 @@
     app.style.pointerEvents = 'none';
     progressArm(label); // 0.6秒以上かかる処理は進捗モーダルを表示
     setStatus(label + '…');
+    _auditNote = '';
     try {
       if (isDebug()) console.log('[WebReg] ' + label + ' 開始');
       await fn();
       setStatus(label + ' 完了');
+      if (!AUDIT_SKIP.has(label)) auditLog(label, _auditNote); // 記録は待たない(best-effort)
     } catch (e) {
       console.error('[WebReg] ' + label + ' 失敗:', e);
       setStatus('エラー: ' + e.message);
@@ -203,6 +212,7 @@
     });
     if (!result) return;
     run('登録', async () => {
+      auditNote('利用者「' + result + '」を登録');
       await reload();
       toast('ok', '「' + result + '」を登録しました');
     });
@@ -218,6 +228,7 @@
     }, item);
     if (!result) return;
     run('保存', async () => {
+      auditNote('利用者「' + result + '」を編集');
       await reload();
       toast('ok', '「' + result + '」を保存しました');
     });
@@ -336,6 +347,7 @@
           toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
         }
       }
+      auditNote('CSVインポート: 追加 ' + added + '件 / 更新 ' + updated + '件');
       toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
         (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : '') +
         (plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''));
@@ -447,6 +459,8 @@
           toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
         }
       }
+      auditNote('Excelインポート: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
+        '件 / 論理削除 ' + plan.deletes.length + '件');
       toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
         '件 / 論理削除 ' + plan.deletes.length + '件');
       if (plan.notFound.length) {
@@ -496,6 +510,8 @@
     const changes = await openBulkModal(state, ids.length);
     if (!changes) return;
     run('一括変更', async () => {
+      auditNote(ids.length + '件を一括変更: ' +
+        Object.entries(changes).map(([k, v]) => k + '=' + (v === true ? 'ON' : v === false ? 'OFF' : v)).join(', '));
       for (const id of ids) await updateItem(LIST_USERS, id, changes);
       await reload();
       toast('ok', ids.length + '件を一括変更しました');
@@ -514,6 +530,7 @@
     });
     if (!okDel) return;
     run('物理削除', async () => {
+      auditNote('利用者 ' + ids.length + '件を物理削除');
       for (const id of ids) await deleteItem(LIST_USERS, id);
       selectedUserIds.clear();
       await reload();
@@ -652,6 +669,8 @@
     const clearCt = status === WORK_STATUS_DONE;
     const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
     run('ステータス更新', async () => {
+      const u = state.users.find((x) => x.Id === id);
+      auditNote((u ? '「' + (u.Title || '') + '」' : '#' + id) + 'の改廃ステータスを「' + status + '」に変更');
       await ensureWorkStatusColumn();
       await updateItem(LIST_USERS, id, body);
       await reload();
@@ -669,6 +688,7 @@
     const clearCt = status === WORK_STATUS_DONE;
     const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
     run('ステータス一括変更', async () => {
+      auditNote(ids.length + '件の改廃ステータスを「' + status + '」に変更');
       await ensureWorkStatusColumn();
       for (const id of ids) await updateItem(LIST_USERS, id, body);
       selectedReqIds.clear();
@@ -694,8 +714,10 @@
     }
     if (t.dataset.act === 'active') {
       const row = t.closest('.pr-row');
+      const kindLabel = row.dataset.kind === 'l1' ? LABEL_L1 : LABEL_L2;
       const listTitle = row.dataset.kind === 'l1' ? LIST_L1 : LIST_L2;
-      run('更新', async () => {
+      run('マスタ更新', async () => {
+        auditNote(kindLabel + 'マスタ(ID ' + row.dataset.id + ')を' + (t.checked ? '有効化' : '無効化'));
         await updateItem(listTitle, +row.dataset.id, { Active: t.checked });
         await reload();
       });
@@ -775,6 +797,8 @@
       if (!ok) return;
       const prevFp = state.syncFp; // 反映前のスナップショット(権限の差分適用に使う)
       run('リストへ反映', async () => {
+        auditNote('マスタを利用者一覧へ反映(' + LABEL_L1 + ' ' + activeL1.length + '件 / ' +
+          LABEL_L2 + ' ' + activeL2.length + '件' + (permsConfigured ? ' / 行アクセス権も適用' : '') + ')');
         const s = await syncMastersToUserList(state, setStatus);
         await saveSyncFp('master', computeMasterSnap(state));
         // 権限グループ割当があれば、行レベル権限もここで適用する(ボタンを分けない)。
@@ -820,6 +844,7 @@
       });
       if (!ok) return;
       run('変更の破棄', async () => {
+        auditNote('未反映のマスタ変更を破棄(' + (d.summary.join(' / ') || '') + ')');
         const r = await revertSyncState(state, state.syncFp, setStatus);
         await reload();
         toast('ok', '未反映の変更を破棄しました(書き戻し ' + r.reverted + '件 / 追加分の削除 ' + r.deleted + '件)');
@@ -869,6 +894,7 @@
         return;
       }
       run('まとめて追加', async () => {
+        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + names.length + '件をまとめて追加');
         let order = nextOrder(pool);
         for (const n of names) {
           const body = { Title: n, SortOrder: order, Active: true };
@@ -892,7 +918,8 @@
         toast('warn', '「' + name + '」は既に登録されています');
         return;
       }
-      run('追加', async () => {
+      run('マスタ追加', async () => {
+        auditNote((act === 'add-l1' ? LABEL_L1 : LABEL_L2) + 'マスタに「' + name + '」を追加');
         const body = { Title: name, SortOrder: nextOrder(pool), Active: true };
         if (act === 'add-l2') body.Level1Id = state.selectedL1;
         await addItem(act === 'add-l1' ? LIST_L1 : LIST_L2, body);
@@ -913,6 +940,7 @@
       const name = await modal({ title: '名称変更', inputValue: item.Title, okLabel: '保存' });
       if (!name || name === item.Title) return;
       run('名称変更', async () => {
+        auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」→「' + name + '」に名称変更');
         await updateItem(listTitle, id, { Title: name });
         await reload();
       });
@@ -931,7 +959,8 @@
         danger: true,
       });
       if (!okDel) return;
-      run('削除', async () => {
+      run('マスタ削除', async () => {
+        auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」を削除');
         await deleteItem(listTitle, id);
         await reload();
         toast('ok', '「' + item.Title + '」を削除しました');
@@ -940,6 +969,7 @@
       // SPリスト側(集計式・列順)への反映はその都度行わず、「リストへ反映」で一括適用する
       // (未反映の間は見出しに「並び替え」バッジが出る)
       run('並べ替え', async () => {
+        auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」を' + (act === 'up' ? '上へ' : '下へ') + '移動');
         await moveItem(listTitle, items, item, act === 'up' ? -1 : 1);
         await reload();
       });
@@ -948,7 +978,11 @@
 
   // ---------------------------------------------------------------- start
   render();
-  run('読込', reload);
+  // 共通設定リストからリスト接頭辞を取り込んでから読み込む(全員で共有・SP が正)
+  run('読込', async () => {
+    try { await bootstrapPrefixFromCommon(); } catch { /* リスト未作成なら端末設定のまま */ }
+    await reload();
+  });
   window.__webreg = {
     state,
     build: BUILD,

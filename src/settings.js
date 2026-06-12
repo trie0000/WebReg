@@ -27,13 +27,19 @@ function openSettingsModalInner(state, resolve) {
           <div class="pr-hub-panels">
             <div class="pr-hub-panel" data-hubpanel="personal">
               <div class="pr-field">
-                <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭に付ける)</label>
-                <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
-                <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
-                  変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照し、無ければセットアップ/反映で作成します)。</span>
+                <label>操作ログ(このツールからの更新作業の記録)</label>
+                <button class="pr-btn pr-btn--secondary" data-sact="audit">${ico('refresh-cw')}操作ログを開く</button>
+                <span class="pr-note">参照操作は記録されません。更新作業だけを新しい順に表示します(全員共有)。</span>
               </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="shared" style="display:none">
+              <div class="pr-field">
+                <label>リスト名の接頭辞(このツールが作成/参照する SP リスト名の先頭。全員で共有)</label>
+                <input type="text" class="pr-input" id="pr-list-prefix" value="${esc(listPrefix())}" placeholder="例: WebReg_">
+                <span class="pr-note">現在の対象: ${esc(LIST_L1)} / ${esc(LIST_L2)} / ${esc(LIST_USERS)}。
+                  「${esc(LIST_COMMON)}」リストに保存し、起動時に全員がこの接頭辞を参照します。
+                  変更しても既存リストの名前は変わりません(以後は新しい接頭辞のリストを参照/作成)。</span>
+              </div>
               <div class="pr-field">
                 <label>「変更区分」の選択肢(1行1件)</label>
                 <textarea class="pr-input pr-modal-ta pr-ta-sm" id="pr-choice-ct" rows="4" ${state.usersReady ? '' : 'disabled'}></textarea>
@@ -93,6 +99,9 @@ function openSettingsModalInner(state, resolve) {
     });
   });
 
+  // 操作ログを開く(設定モーダルは閉じずに重ねて表示)
+  back.querySelector('[data-sact="audit"]').addEventListener('click', () => { openAuditLogModal(); });
+
   // 配信フォルダ欄はローカル配信サーバから現在値を取得して埋める(サーバ未起動なら無効化)
   const dirInput = back.querySelector('#pr-bundle-dir');
   (async () => {
@@ -132,7 +141,7 @@ function openSettingsModalInner(state, resolve) {
   };
 
   const save = async () => {
-    // 個人設定: リスト名の接頭辞
+    // 共通設定: リスト名の接頭辞(共通設定リストに保存し全員で共有。端末にもキャッシュ)
     const prefix = back.querySelector('#pr-list-prefix').value.trim();
     if (/[\\/:*?"<>|#%]/.test(prefix)) {
       toast('warn', '接頭辞に \\ / : * ? " < > | # % は使えません');
@@ -140,6 +149,13 @@ function openSettingsModalInner(state, resolve) {
     }
     const prefixChanged = prefix !== listPrefix();
     if (prefixChanged) {
+      try {
+        await setCommonSetting('listPrefix', prefix);
+        auditLog('接頭辞の変更', 'リスト接頭辞を「' + (prefix || '(なし)') + '」に設定');
+      } catch (e) {
+        toast('err', '接頭辞の保存に失敗しました — ' + e.message);
+        return; // モーダルは開いたまま再試行できる
+      }
       localStorage.setItem(LS_LIST_PREFIX, prefix);
       applyListPrefix();
     }
@@ -161,6 +177,7 @@ function openSettingsModalInner(state, resolve) {
           if (changedCt) await setChoices(LIST_USERS, 'ChangeType', '変更区分', ct, true);
           if (changedPm) await setChoices(LIST_USERS, 'Permission', '権限', pm, true);
           state.choices = { changeType: ct, permission: pm };
+          auditLog('選択肢の変更', [changedCt ? '変更区分' : '', changedPm ? '権限' : ''].filter(Boolean).join(' / ') + 'を更新');
         } catch (e) {
           toast('err', '選択肢の更新に失敗しました — ' + e.message);
           return; // モーダルは開いたまま再試行できる
@@ -174,6 +191,7 @@ function openSettingsModalInner(state, resolve) {
       if (JSON.stringify(ids) !== JSON.stringify(adminLoadedIds)) {
         try {
           await saveAdminGroupIds(ids);
+          auditLog('管理者グループの変更', '管理者グループを ' + ids.length + '件に設定');
           adminLoadedIds = ids;
         } catch (e) {
           toast('err', '管理者グループの保存に失敗しました — ' + e.message);

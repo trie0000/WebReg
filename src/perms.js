@@ -300,7 +300,9 @@ function openL1PermModal(state, l1) {
         // 旧版の参照/更新分離で保存した分は PermEdit へ寄せて空にする(列がある場合のみ)
         if (l1.PermRead !== undefined) body.PermRead = '[]';
         await spMerge(lt(LIST_L1) + '/items(' + l1.Id + ')', body);
-        toast('ok', '「' + l1.Title + '」の権限グループを保存しました(反映は「権限を反映」)');
+        auditLog('権限グループ割当', '「' + l1.Title + '」の権限グループを ' +
+          collectPermIds(back, 'g').length + '件に設定');
+        toast('ok', '「' + l1.Title + '」の権限グループを保存しました(反映は「リストへ反映」)');
         done(true);
       } catch (e) {
         toast('err', '保存に失敗しました — ' + e.message);

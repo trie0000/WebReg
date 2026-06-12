@@ -9,12 +9,15 @@ const DEFAULT_LOCAL_BASE = 'http://127.0.0.1:18086/webreg';
 
 // このツールが作成/参照する SP リスト名。設定の「接頭辞」を付けて解決する。
 // 接頭辞を変更しても既存リストの改名はしない(以後は新しい名前のリストを参照/作成)
-const LS_LIST_PREFIX = 'webreg.listPrefix';
+const LS_LIST_PREFIX = 'webreg.listPrefix'; // 共通設定リストの値を端末にキャッシュするだけ
 const BASE_LIST_L1 = '組織区分第1階層マスタ';
 const BASE_LIST_L2 = '組織区分第2階層マスタ';
 const BASE_LIST_USERS = '利用者一覧';
 const BASE_LIST_CONF = 'WebReg設定';
-let LIST_L1, LIST_L2, LIST_USERS, LIST_CONF;
+const BASE_LIST_AUDIT = '操作ログ';
+// 共通設定リストは接頭辞に依存しない固定名(接頭辞自体をここに保存するため)
+const LIST_COMMON = 'WebReg共通設定';
+let LIST_L1, LIST_L2, LIST_USERS, LIST_CONF, LIST_AUDIT;
 function listPrefix() {
   try { return (localStorage.getItem(LS_LIST_PREFIX) || '').trim(); } catch { return ''; }
 }
@@ -24,6 +27,7 @@ function applyListPrefix() {
   LIST_L2 = p + BASE_LIST_L2;
   LIST_USERS = p + BASE_LIST_USERS;
   LIST_CONF = p + BASE_LIST_CONF;
+  LIST_AUDIT = p + BASE_LIST_AUDIT;
 }
 applyListPrefix();
 

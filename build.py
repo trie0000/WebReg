@@ -23,7 +23,7 @@ SRC = ROOT / 'src'
 DIST = ROOT / 'dist'
 
 # 連結順序 = 依存順(config → 基盤 → main)。新しいファイルはここに追加する
-ORDER = ['config.js', 'sp.js', 'schema.js', 'usersync.js', 'perms.js', 'syncstate.js', 'icons.js', 'styles.js', 'ui.js', 'grid.js', 'usersview.js', 'reqview.js', 'compare.js', 'settings.js', 'importcsv.js', 'xlsx.js', 'xlsxflow.js', 'updater.js', 'main.js']
+ORDER = ['config.js', 'sp.js', 'schema.js', 'usersync.js', 'perms.js', 'syncstate.js', 'icons.js', 'styles.js', 'ui.js', 'grid.js', 'usersview.js', 'reqview.js', 'compare.js', 'audit.js', 'settings.js', 'importcsv.js', 'xlsx.js', 'xlsxflow.js', 'updater.js', 'main.js']
 
 
 def minify_js(code: str) -> str:
