@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-92690693" !== 'undefined' ? "0.1.0-92690693" : 'dev';
+const BUILD = typeof "0.1.0-4f452bb6" !== 'undefined' ? "0.1.0-4f452bb6" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -496,35 +496,39 @@ summary.orderWarn = e.message;
 log('反映完了');
 return summary;
 }
-function chipFormatterJson(colorMap, deflt) {
-const entries = Object.entries(colorMap);
-let bg = "'" + deflt + "'";
+function chipFormatterJson(classMap, deflt) {
+const entries = Object.entries(classMap);
+let cls = "'" + deflt + "'";
 for (let i = entries.length - 1; i >= 0; i--) {
-bg = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + bg + ")";
+cls = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + cls + ")";
 }
 return JSON.stringify({
 $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
 elmType: 'div',
 txtContent: '@currentField',
 style: {
-display: "=if(@currentField == '', 'none', 'inline-block')",
-padding: '1px 12px',
+'box-sizing': 'border-box',
+display: "=if(@currentField == '', 'none', 'inline-flex')",
+'align-items': 'center',
+padding: '1px 10px',
 'border-radius': '16px',
-'font-size': '12px',
-'font-weight': '600',
-color: '#323130',
-'background-color': '=' + bg,
+height: '22px',
+'white-space': 'nowrap',
 },
+attributes: { class: '=' + cls },
 });
 }
 async function applyListFormatting(state) {
 const ctFmt = chipFormatterJson({
-追加: '#dff6dd', 新規: '#dff6dd',
-更新: '#cfe4fa', 変更: '#cfe4fa',
-削除: '#fde7e9',
-変更なし: '#f3f2f1',
-}, '#f3f2f1');
-const pmFmt = chipFormatterJson({ 更新者: '#cce6ff', 閲覧者: '#eef0f2' }, '#eef0f2');
+追加: 'sp-css-backgroundColor-BgMintGreen', 新規: 'sp-css-backgroundColor-BgMintGreen',
+更新: 'sp-css-backgroundColor-BgCornflowerBlue', 変更: 'sp-css-backgroundColor-BgCornflowerBlue',
+削除: 'sp-css-backgroundColor-BgCoral',
+変更なし: 'sp-css-backgroundColor-BgLightGray',
+}, 'sp-css-backgroundColor-BgLightGray');
+const pmFmt = chipFormatterJson({
+更新者: 'sp-css-backgroundColor-BgCornflowerBlue',
+閲覧者: 'sp-css-backgroundColor-BgLightGray',
+}, 'sp-css-backgroundColor-BgLightGray');
 const setFmt = async (internal, json) => {
 try {
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",

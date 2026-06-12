@@ -319,41 +319,46 @@ async function syncMastersToUserList(state, log) {
   return summary;
 }
 
-// 選択肢→色のチップ列フォーマット(SPのモダン列書式 JSON)を生成する。
-// 既知の値だけ色を付け、空欄はチップを出さない(display:none)
-function chipFormatterJson(colorMap, deflt) {
-  const entries = Object.entries(colorMap);
-  let bg = "'" + deflt + "'";
+// 選択肢→SPテーマ色クラスのチップ列フォーマットを生成する(モダンの既定チップに色だけ付ける)。
+// 色は SP 標準の sp-css-backgroundColor-Bg* クラスで指定(自前の色値は使わない)。
+// 空欄はチップを出さない(display:none)
+function chipFormatterJson(classMap, deflt) {
+  const entries = Object.entries(classMap);
+  let cls = "'" + deflt + "'";
   for (let i = entries.length - 1; i >= 0; i--) {
-    bg = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + bg + ")";
+    cls = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + cls + ")";
   }
   return JSON.stringify({
     $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
     elmType: 'div',
     txtContent: '@currentField',
     style: {
-      display: "=if(@currentField == '', 'none', 'inline-block')",
-      padding: '1px 12px',
+      'box-sizing': 'border-box',
+      display: "=if(@currentField == '', 'none', 'inline-flex')",
+      'align-items': 'center',
+      padding: '1px 10px',
       'border-radius': '16px',
-      'font-size': '12px',
-      'font-weight': '600',
-      color: '#323130',
-      'background-color': '=' + bg,
+      height: '22px',
+      'white-space': 'nowrap',
     },
+    attributes: { class: '=' + cls },
   });
 }
 
-// 変更区分/権限を色付きチップで表示し、読み取り専用の集計列をフォームから隠す
+// 変更区分/権限の選択肢に SP 標準色を付け、読み取り専用の集計列をフォームから隠す
 async function applyListFormatting(state) {
-  // 変更区分: 追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰
+  // SP テーマの淡色クラス(実機で描画を確認済み)。追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰
   const ctFmt = chipFormatterJson({
-    追加: '#dff6dd', 新規: '#dff6dd',
-    更新: '#cfe4fa', 変更: '#cfe4fa',
-    削除: '#fde7e9',
-    変更なし: '#f3f2f1',
-  }, '#f3f2f1');
+    追加: 'sp-css-backgroundColor-BgMintGreen', 新規: 'sp-css-backgroundColor-BgMintGreen',
+    更新: 'sp-css-backgroundColor-BgCornflowerBlue', 変更: 'sp-css-backgroundColor-BgCornflowerBlue',
+    削除: 'sp-css-backgroundColor-BgCoral',
+    変更なし: 'sp-css-backgroundColor-BgLightGray',
+  }, 'sp-css-backgroundColor-BgLightGray');
   // 権限: 更新者=青 / 閲覧者=灰
-  const pmFmt = chipFormatterJson({ 更新者: '#cce6ff', 閲覧者: '#eef0f2' }, '#eef0f2');
+  const pmFmt = chipFormatterJson({
+    更新者: 'sp-css-backgroundColor-BgCornflowerBlue',
+    閲覧者: 'sp-css-backgroundColor-BgLightGray',
+  }, 'sp-css-backgroundColor-BgLightGray');
   const setFmt = async (internal, json) => {
     try {
       await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
