@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-06e159a4" !== 'undefined' ? "0.1.0-06e159a4" : 'dev';
+const BUILD = typeof "0.1.0-5d41a609" !== 'undefined' ? "0.1.0-5d41a609" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -1226,6 +1226,9 @@ const css = `
 #${ROOT_ID} .pr-row[data-kind="l1"] .pr-name{ cursor:pointer; }
 #${ROOT_ID} .pr-row.off .pr-name{ color:var(--ink-4); text-decoration:line-through; }
 #${ROOT_ID} .pr-name-en{ margin-left:var(--s-3); font-size:var(--fs-xs); color:var(--ink-4); }
+#${ROOT_ID} .pr-assign-row{ display:flex; align-items:center; gap:var(--s-4); padding:var(--s-2) 0; }
+#${ROOT_ID} .pr-assign-row span{ flex:1; min-width:0; font-size:var(--fs-md); }
+#${ROOT_ID} .pr-assign-row select{ width:110px; flex:none; }
 #${ROOT_ID} .pr-row .pr-childcount{
   font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--ink-3);
   background:var(--paper-2-strong); border-radius:999px; padding:0 var(--s-3); margin-left:var(--s-2);
@@ -1896,8 +1899,17 @@ const USER_COLS = [
 { key: 'permission', label: '権限', w: '90px', val: (u) => u.Permission || '' },
 { key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },
 { key: 'org2', label: '', w: '220px', val: null },
+{ key: 'listKind', label: '区分', w: '90px', val: null },
 { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
+function userRegionLabel(state, u) {
+const a = (state.listAssign && state.listAssign[u.OrgLevel1 || '']) || 'ja';
+return a === 'en' ? '海外' : a === 'both' ? '国内・海外' : '国内';
+}
+function regionChipHtml(label) {
+const cls = label === '海外' ? 'pr-spchip--upd' : label === '国内・海外' ? 'pr-spchip--add' : 'pr-spchip--gray';
+return '<span class="pr-spchip ' + cls + '">' + esc(label) + '</span>';
+}
 function userOrg2Text(state, item) {
 return activeL2Of(state, item.OrgLevel1 || '')
 .map((m) => (item.L2All === true || item['L2_' + m.Id] === true ? '✅' : '☐') + m.Title)
@@ -1923,10 +1935,12 @@ return '<span class="pr-spchip ' + cls + '">' + esc(v) + '</span>';
 function userCellDisplay(state, c, u) {
 if (c.key === 'changeType') return ctChipHtml(u.ChangeType || '');
 if (c.key === 'permission') return pmChipHtml(u.Permission || '');
+if (c.key === 'listKind') return regionChipHtml(userRegionLabel(state, u));
 return esc(userCellText(state, c, u));
 }
 function userCellText(state, c, u) {
 if (c.key === 'org2') return userOrg2Text(state, u);
+if (c.key === 'listKind') return userRegionLabel(state, u);
 if (c.key === 'modified') {
 const d = new Date(u.Modified || '');
 if (isNaN(+d)) return '';
@@ -2331,13 +2345,15 @@ const REQ_COLS = [
 { key: 'permission', label: '権限', w: '80px', val: (u) => u.Permission || '' },
 { key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },
 { key: 'org2', label: '', w: '200px', val: null },
+{ key: 'listKind', label: '区分', w: '90px', val: null },
 { key: 'status', label: '改廃ステータス', w: '130px', val: (u) => reqStatusOf(u) },
 { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
 const reqColLabel = (c) => (c.key === 'org1' ? LABEL_L1 : c.key === 'org2' ? LABEL_L2 : c.label);
 const reqCellText = (state, c, u) =>
 (c.key === 'org2' ? userOrg2Text(state, u)
-: c.key === 'modified' ? userCellText(state, USER_COLS[USER_COLS.length - 1], u)
+: c.key === 'listKind' ? userRegionLabel(state, u)
+: c.key === 'modified' ? userCellText(state, USER_COLS.find((x) => x.key === 'modified'), u)
 : c.val(u));
 function visibleReqs(state) {
 const f = reqFilter;
@@ -2389,6 +2405,7 @@ WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s)
 };
 const cellHtml = (c, u) => c.key === 'changeType' ? ctChipHtml(u.ChangeType || '')
 : c.key === 'permission' ? pmChipHtml(u.Permission || '')
+: c.key === 'listKind' ? regionChipHtml(userRegionLabel(state, u))
 : esc(reqCellText(state, c, u));
 const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
 '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
@@ -3033,6 +3050,21 @@ const back = el(`
                 <span class="pr-note">「${esc(LIST_CONF)}」リストに保存します(全員共有)。行の参照/更新グループの割当はマスタ管理の鍵アイコンから。</span>
               </div>
               <div class="pr-field">
+                <label>利用者リストの振り分け(${esc(LABEL_L1)}ごとに 国内/海外/両方)</label>
+                <div class="pr-checks" id="pr-list-assign" style="display:block; max-height:200px; overflow:auto">
+                  ${state.l1.filter((x) => x.Active !== false).map((x) => {
+const a = (state.listAssign && state.listAssign[x.Title]) || 'ja';
+return '<div class="pr-assign-row"><span>' + esc(x.Title) +
+(x.TitleEn ? ' <small>(' + esc(x.TitleEn) + ')</small>' : '') + '</span>' +
+'<select class="pr-input pr-fsel" data-assign="' + esc(x.Title) + '">' +
+['ja', 'en', 'both'].map((v) => '<option value="' + v + '"' + (a === v ? ' selected' : '') + '>' +
+(v === 'ja' ? '国内' : v === 'en' ? '海外' : '両方') + '</option>').join('') +
+'</select></div>';
+}).join('') || '<span class="pr-note">' + esc(LABEL_L1) + 'がありません</span>'}
+                </div>
+                <span class="pr-note">国内=日本語リスト / 海外=英語リスト / 両方=両方に登録。「${esc(LIST_COMMON)}」に保存(全員共有)。</span>
+              </div>
+              <div class="pr-field">
                 <label>データ管理(バックアップ / リストア / リセット)</label>
                 <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
                   <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
@@ -3176,6 +3208,22 @@ auditLog('管理者グループの変更', '管理者グループを ' + ids.len
 adminLoadedIds = ids;
 } catch (e) {
 toast('err', '管理者グループの保存に失敗しました — ' + e.message);
+return;
+}
+}
+}
+if (!prefixChanged) {
+const assign = {};
+back.querySelectorAll('[data-assign]').forEach((s) => {
+if (s.value !== 'ja') assign[s.dataset.assign] = s.value;
+});
+if (JSON.stringify(assign) !== JSON.stringify(state.listAssign || {})) {
+try {
+await saveListAssign(assign);
+state.listAssign = assign;
+auditLog('利用者リスト振り分けの変更', Object.keys(assign).length + '件の' + LABEL_L1 + 'を国内以外に設定');
+} catch (e) {
+toast('err', '振り分けの保存に失敗しました — ' + e.message);
 return;
 }
 }

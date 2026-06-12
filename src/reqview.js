@@ -22,6 +22,7 @@ const REQ_COLS = [
   { key: 'permission', label: '権限', w: '80px', val: (u) => u.Permission || '' },
   { key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },
   { key: 'org2', label: '', w: '200px', val: null },
+  { key: 'listKind', label: '区分', w: '90px', val: null },
   { key: 'status', label: '改廃ステータス', w: '130px', val: (u) => reqStatusOf(u) },
   { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
@@ -29,8 +30,9 @@ const REQ_COLS = [
 const reqColLabel = (c) => (c.key === 'org1' ? LABEL_L1 : c.key === 'org2' ? LABEL_L2 : c.label);
 const reqCellText = (state, c, u) =>
   (c.key === 'org2' ? userOrg2Text(state, u)
-    : c.key === 'modified' ? userCellText(state, USER_COLS[USER_COLS.length - 1], u)
-      : c.val(u));
+    : c.key === 'listKind' ? userRegionLabel(state, u)
+      : c.key === 'modified' ? userCellText(state, USER_COLS.find((x) => x.key === 'modified'), u)
+        : c.val(u));
 
 function visibleReqs(state) {
   const f = reqFilter;
@@ -90,7 +92,8 @@ function reqViewHtml(state) {
   };
   const cellHtml = (c, u) => c.key === 'changeType' ? ctChipHtml(u.ChangeType || '')
     : c.key === 'permission' ? pmChipHtml(u.Permission || '')
-      : esc(reqCellText(state, c, u));
+      : c.key === 'listKind' ? regionChipHtml(userRegionLabel(state, u))
+        : esc(reqCellText(state, c, u));
   const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
     '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
       (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +

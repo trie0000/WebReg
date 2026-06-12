@@ -25,8 +25,19 @@ const USER_COLS = [
   { key: 'permission', label: '権限', w: '90px', val: (u) => u.Permission || '' },
   { key: 'org1', label: '', w: '120px', val: (u) => u.OrgLevel1 || '' },          // label は実行時に LABEL_L1
   { key: 'org2', label: '', w: '220px', val: null },                              // 同 LABEL_L2(計算表示)
+  { key: 'listKind', label: '区分', w: '90px', val: null },                       // 国内/海外(振り分けから導出)
   { key: 'modified', label: '更新日時', w: '130px', val: (u) => u.Modified || '' },
 ];
+
+// 利用者が登録される利用者リストの区分(振り分け設定から導出): 国内 / 海外 / 国内・海外
+function userRegionLabel(state, u) {
+  const a = (state.listAssign && state.listAssign[u.OrgLevel1 || '']) || 'ja';
+  return a === 'en' ? '海外' : a === 'both' ? '国内・海外' : '国内';
+}
+function regionChipHtml(label) {
+  const cls = label === '海外' ? 'pr-spchip--upd' : label === '国内・海外' ? 'pr-spchip--add' : 'pr-spchip--gray';
+  return '<span class="pr-spchip ' + cls + '">' + esc(label) + '</span>';
+}
 
 // 行の組織区分1に紐づく有効な組織区分2だけを ✅(チェック済)/☐(未チェック)で表示。
 // 「組織区分2のすべて」フラグが立っている行は全✅として解釈する(集計列と同じ)
@@ -59,11 +70,13 @@ function pmChipHtml(v) {
 function userCellDisplay(state, c, u) {
   if (c.key === 'changeType') return ctChipHtml(u.ChangeType || '');
   if (c.key === 'permission') return pmChipHtml(u.Permission || '');
+  if (c.key === 'listKind') return regionChipHtml(userRegionLabel(state, u));
   return esc(userCellText(state, c, u));
 }
 
 function userCellText(state, c, u) {
   if (c.key === 'org2') return userOrg2Text(state, u);
+  if (c.key === 'listKind') return userRegionLabel(state, u);
   if (c.key === 'modified') {
     const d = new Date(u.Modified || '');
     if (isNaN(+d)) return '';

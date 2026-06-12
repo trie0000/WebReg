@@ -56,6 +56,21 @@ function openSettingsModalInner(state, resolve, handlers) {
                 <span class="pr-note">「${esc(LIST_CONF)}」リストに保存します(全員共有)。行の参照/更新グループの割当はマスタ管理の鍵アイコンから。</span>
               </div>
               <div class="pr-field">
+                <label>利用者リストの振り分け(${esc(LABEL_L1)}ごとに 国内/海外/両方)</label>
+                <div class="pr-checks" id="pr-list-assign" style="display:block; max-height:200px; overflow:auto">
+                  ${state.l1.filter((x) => x.Active !== false).map((x) => {
+    const a = (state.listAssign && state.listAssign[x.Title]) || 'ja';
+    return '<div class="pr-assign-row"><span>' + esc(x.Title) +
+      (x.TitleEn ? ' <small>(' + esc(x.TitleEn) + ')</small>' : '') + '</span>' +
+      '<select class="pr-input pr-fsel" data-assign="' + esc(x.Title) + '">' +
+      ['ja', 'en', 'both'].map((v) => '<option value="' + v + '"' + (a === v ? ' selected' : '') + '>' +
+        (v === 'ja' ? '国内' : v === 'en' ? '海外' : '両方') + '</option>').join('') +
+      '</select></div>';
+  }).join('') || '<span class="pr-note">' + esc(LABEL_L1) + 'がありません</span>'}
+                </div>
+                <span class="pr-note">国内=日本語リスト / 海外=英語リスト / 両方=両方に登録。「${esc(LIST_COMMON)}」に保存(全員共有)。</span>
+              </div>
+              <div class="pr-field">
                 <label>データ管理(バックアップ / リストア / リセット)</label>
                 <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
                   <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
@@ -217,6 +232,24 @@ function openSettingsModalInner(state, resolve, handlers) {
           adminLoadedIds = ids;
         } catch (e) {
           toast('err', '管理者グループの保存に失敗しました — ' + e.message);
+          return; // モーダルは開いたまま再試行できる
+        }
+      }
+    }
+
+    // 共通設定: 利用者リストの振り分け(国内/海外/両方)
+    if (!prefixChanged) {
+      const assign = {};
+      back.querySelectorAll('[data-assign]').forEach((s) => {
+        if (s.value !== 'ja') assign[s.dataset.assign] = s.value; // 既定(国内)は省略
+      });
+      if (JSON.stringify(assign) !== JSON.stringify(state.listAssign || {})) {
+        try {
+          await saveListAssign(assign);
+          state.listAssign = assign;
+          auditLog('利用者リスト振り分けの変更', Object.keys(assign).length + '件の' + LABEL_L1 + 'を国内以外に設定');
+        } catch (e) {
+          toast('err', '振り分けの保存に失敗しました — ' + e.message);
           return; // モーダルは開いたまま再試行できる
         }
       }
