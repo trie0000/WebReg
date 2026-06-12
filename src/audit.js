@@ -44,6 +44,24 @@ async function bootstrapPrefixFromCommon() {
   return true;
 }
 
+// ---- 組織区分1ごとの利用者リスト振り分け(日本語/英語/両方) ------------
+// 共通設定リストの 'listAssign' に {組織区分1名: 'ja'|'en'|'both'} を保存。既定 'ja'
+
+async function loadListAssign() {
+  try {
+    const v = await getCommonSetting('listAssign');
+    return v ? (JSON.parse(v) || {}) : {};
+  } catch { return {}; }
+}
+async function saveListAssign(map) {
+  await setCommonSetting('listAssign', JSON.stringify(map || {}));
+}
+const assignOf = (state, org1Title) => (state.listAssign && state.listAssign[org1Title]) || 'ja';
+const goesToJa = (a) => a === 'ja' || a === 'both' || !a;
+const goesToEn = (a) => a === 'en' || a === 'both';
+// 英語リストを使う組織区分1が1つでもあるか
+const anyEnAssigned = (state) => state.l1.some((x) => goesToEn(assignOf(state, x.Title)));
+
 // ---- 操作ログ ----------------------------------------------------------
 
 async function ensureAuditList() {

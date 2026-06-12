@@ -9,10 +9,11 @@ const LS_LIST_PREFIX = 'webreg.listPrefix';
 const BASE_LIST_L1 = '組織区分第1階層マスタ';
 const BASE_LIST_L2 = '組織区分第2階層マスタ';
 const BASE_LIST_USERS = '利用者一覧';
+const BASE_LIST_USERS_EN = '利用者一覧(英語)';
 const BASE_LIST_CONF = 'WebReg設定';
 const BASE_LIST_AUDIT = '操作ログ';
 const LIST_COMMON = 'WebReg共通設定';
-let LIST_L1, LIST_L2, LIST_USERS, LIST_CONF, LIST_AUDIT;
+let LIST_L1, LIST_L2, LIST_USERS, LIST_USERS_EN, LIST_CONF, LIST_AUDIT;
 function listPrefix() {
 try { return (localStorage.getItem(LS_LIST_PREFIX) || '').trim(); } catch { return ''; }
 }
@@ -21,6 +22,7 @@ const p = listPrefix();
 LIST_L1 = p + BASE_LIST_L1;
 LIST_L2 = p + BASE_LIST_L2;
 LIST_USERS = p + BASE_LIST_USERS;
+LIST_USERS_EN = p + BASE_LIST_USERS_EN;
 LIST_CONF = p + BASE_LIST_CONF;
 LIST_AUDIT = p + BASE_LIST_AUDIT;
 }
@@ -50,7 +52,33 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-fec24172" !== 'undefined' ? "0.1.0-fec24172" : 'dev';
+const BUILD = typeof "0.1.0-06e159a4" !== 'undefined' ? "0.1.0-06e159a4" : 'dev';
+const EN_FIELD_TITLE = {
+Title: 'User Name',
+Company: 'Company',
+Email: 'Email',
+ChangeType: 'Change Type',
+Permission: 'Permission',
+OrgLevel1: 'Org Division 1',
+OrgLevel2: 'Org Division 2',
+Notes: 'Notes',
+AppliedDate: 'Applied Date',
+SystemDeleted: 'System Deleted',
+L2All: 'All Org Division 2',
+WorkStatus: 'Work Status',
+};
+const EN_CHANGE_TYPE = {
+追加: 'Add', 新規: 'New', 変更: 'Change', 更新: 'Update', 削除: 'Delete', 変更なし: 'No Change',
+};
+const EN_PERMISSION = { 更新者: 'Editor', 閲覧者: 'Viewer', 参照者: 'Reader' };
+const EN_WORK_STATUS = { 作業待ち: 'Pending', 改廃済み: 'Done', 結果確認済み: 'Verified' };
+const EN_LIST_DESC = 'User permission registry (English)';
+const toEnChangeType = (v) => EN_CHANGE_TYPE[v] || v || '';
+const toEnPermission = (v) => EN_PERMISSION[v] || v || '';
+const toEnWorkStatus = (v) => EN_WORK_STATUS[v] || v || WORK_STATUS_DEFAULT;
+const enFieldTitle = (internal, jaTitle) => EN_FIELD_TITLE[internal] || jaTitle;
+const l1NameOf = (x, lang) => (lang === 'en' ? (x.TitleEn || x.Title) : x.Title);
+const l2NameOf = (x, lang) => (lang === 'en' ? (x.TitleEn || x.Title) : x.Title);
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -237,15 +265,17 @@ await spPost(lt(title) + "/defaultview/viewfields/addviewfield('" + f + "')");
 async function setup(log) {
 log('「' + LIST_L1 + '」を確認中…');
 const id1 = await ensureList(LIST_L1, '権限登録リスト用 組織区分(第1階層)マスタ');
+await ensureField(LIST_L1, 'TitleEn', '英語名', { FieldTypeKind: 2 });
 await ensureField(LIST_L1, 'SortOrder', '並び順', { FieldTypeKind: 9 });
 await ensureField(LIST_L1, 'Active', '有効', { FieldTypeKind: 8, DefaultValue: '1' });
-await addViewFields(LIST_L1, ['SortOrder', 'Active']);
+await addViewFields(LIST_L1, ['TitleEn', 'SortOrder', 'Active']);
 log('「' + LIST_L2 + '」を確認中…');
 await ensureList(LIST_L2, '権限登録リスト用 組織区分(第2階層)マスタ');
 await ensureLookupField(LIST_L2, 'Level1', '第1階層', id1);
+await ensureField(LIST_L2, 'TitleEn', '英語名', { FieldTypeKind: 2 });
 await ensureField(LIST_L2, 'SortOrder', '並び順', { FieldTypeKind: 9 });
 await ensureField(LIST_L2, 'Active', '有効', { FieldTypeKind: 8, DefaultValue: '1' });
-await addViewFields(LIST_L2, ['Level1', 'SortOrder', 'Active']);
+await addViewFields(LIST_L2, ['Level1', 'TitleEn', 'SortOrder', 'Active']);
 log('セットアップ完了');
 }
 const xmlEsc = (s) => String(s)
@@ -1195,6 +1225,7 @@ const css = `
 }
 #${ROOT_ID} .pr-row[data-kind="l1"] .pr-name{ cursor:pointer; }
 #${ROOT_ID} .pr-row.off .pr-name{ color:var(--ink-4); text-decoration:line-through; }
+#${ROOT_ID} .pr-name-en{ margin-left:var(--s-3); font-size:var(--fs-xs); color:var(--ink-4); }
 #${ROOT_ID} .pr-row .pr-childcount{
   font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--ink-3);
   background:var(--paper-2-strong); border-radius:999px; padding:0 var(--s-3); margin-left:var(--s-2);
@@ -1637,6 +1668,51 @@ clearTimeout(_prog.openTimer);
 clearInterval(_prog.tick);
 if (_prog.el) _prog.el.remove();
 _prog = null;
+}
+function openRenameMasterModal(item) {
+return new Promise((resolve) => {
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal" role="dialog" aria-modal="true" aria-label="名称変更">
+          <h4>名称変更</h4>
+          <div class="pr-field"><label>名称(日本語)</label>
+            <input type="text" class="pr-input" id="rn-ja"></div>
+          <div class="pr-field"><label>英語名(任意)</label>
+            <input type="text" class="pr-input" id="rn-en"></div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">保存</button>
+          </div>
+        </div>
+      </div>`);
+back.querySelector('#rn-ja').value = item.Title || '';
+back.querySelector('#rn-en').value = item.TitleEn || '';
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+const ok = () => {
+const title = back.querySelector('#rn-ja').value.trim();
+if (!title) { toast('warn', '日本語の名称は必須です'); return; }
+done({ title, titleEn: back.querySelector('#rn-en').value.trim() });
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) { if (downOnBack) done(null); return; }
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('#rn-ja').focus();
+});
 }
 const GRID_W = 'webreg.colw.';
 const GRID_O = 'webreg.colorder.';
@@ -2626,6 +2702,19 @@ try { localStorage.setItem(LS_LIST_PREFIX, remote); } catch { }
 applyListPrefix();
 return true;
 }
+async function loadListAssign() {
+try {
+const v = await getCommonSetting('listAssign');
+return v ? (JSON.parse(v) || {}) : {};
+} catch { return {}; }
+}
+async function saveListAssign(map) {
+await setCommonSetting('listAssign', JSON.stringify(map || {}));
+}
+const assignOf = (state, org1Title) => (state.listAssign && state.listAssign[org1Title]) || 'ja';
+const goesToJa = (a) => a === 'ja' || a === 'both' || !a;
+const goesToEn = (a) => a === 'en' || a === 'both';
+const anyEnAssigned = (state) => state.l1.some((x) => goesToEn(assignOf(state, x.Title)));
 async function ensureAuditList() {
 if (await listId(LIST_AUDIT)) return false;
 await ensureList(LIST_AUDIT, 'WebReg の操作ログ(更新作業の記録)');
@@ -4187,7 +4276,7 @@ state.usersReady = !!(await listId(LIST_USERS));
 async function loadAll() {
 const [r1, r2, ru] = await Promise.all([
 spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+spGet(lt(LIST_L2) + '/items?$select=Id,Title,TitleEn,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
 state.usersReady
 ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
 : Promise.resolve({ value: [] }),
@@ -4224,6 +4313,7 @@ if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.
 if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
 state.syncDiff = null;
 state.syncFp = null;
+try { state.listAssign = await loadListAssign(); } catch { state.listAssign = {}; }
 if (state.usersReady) {
 let ss = await loadSyncState();
 if (!ss.fp || typeof ss.fp.master !== 'object') {
@@ -4706,6 +4796,7 @@ const rowHtml = (x, kind, extra) => `
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="up" aria-label="上へ" title="上へ">${ico('chevron-up')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="down" aria-label="下へ" title="下へ">${ico('chevron-down')}</button>
         <span class="pr-name" ${kind === 'l1' ? 'data-act="select"' : ''} title="${esc(x.Title)}">${esc(x.Title)}${
+x.TitleEn ? '<span class="pr-name-en">' + esc(x.TitleEn) + '</span>' : ''}${
 kind === 'l1' ? `<span class="pr-childcount">${l2of(x.Id).length}</span>` : ''}${staleHtml(kind, x)}</span>
         <label class="pr-active" title="有効/無効">
           <input type="checkbox" data-act="active" aria-label="有効" ${x.Active !== false ? 'checked' : ''}>
@@ -4739,9 +4830,10 @@ diff.removed.length ? ' — 削除: ' + esc(diff.removed.slice(0, 3).join('、')
         <div class="pr-col">
           <div class="pr-sub"><b>${esc(LABEL_L1)}</b>${diff && diff.l1Reorder ? '<span class="pr-stale">並び替え</span>' : ''}<span class="pr-count">${state.l1.length}件</span></div>
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称(日本語)">
+            <input type="text" class="pr-input" id="pr-add-l1-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${state.l1.map((x) =>
 rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
@@ -4753,9 +4845,10 @@ diff && diff.l2Reorder ? '<span class="pr-stale">並び替え</span>' : ''}
             <span class="pr-count">${sel ? l2of(sel.Id).length + '件' : ''}</span></div>
           ${sel ? `
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称(日本語)">
+            <input type="text" class="pr-input" id="pr-add-l2-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l2">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
 '<div class="pr-empty">未登録</div>'}</div>`
@@ -5007,48 +5100,54 @@ if (text == null) return;
 const pool = isL1 ? state.l1
 : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
 const existing = new Set(pool.map((x) => x.Title));
-const names = [];
+const entries = [];
 let dup = 0;
 for (const raw of text.split(/\r?\n/)) {
-const n = raw.trim();
+if (!raw.trim()) continue;
+const parts = raw.split(/\t|,|，/);
+const n = (parts[0] || '').trim();
+const en = (parts[1] || '').trim();
 if (!n) continue;
 if (existing.has(n)) { dup++; continue; }
 existing.add(n);
-names.push(n);
+entries.push({ name: n, en });
 }
-if (!names.length) {
+if (!entries.length) {
 toast('warn', '追加できる名称がありません' + (dup ? '(すべて既存と重複)' : ''));
 return;
 }
 run('まとめて追加', async () => {
-auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + names.length + '件をまとめて追加');
+auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + entries.length + '件をまとめて追加');
 let order = nextOrder(pool);
-for (const n of names) {
-const body = { Title: n, SortOrder: order, Active: true };
+for (const e of entries) {
+const body = { Title: e.name, TitleEn: e.en, SortOrder: order, Active: true };
 if (!isL1) body.Level1Id = state.selectedL1;
 await addItem(isL1 ? LIST_L1 : LIST_L2, body);
 order += 10;
 }
 await reload();
-toast('ok', names.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
+toast('ok', entries.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
 });
 return;
 }
 if (act === 'add-l1' || act === 'add-l2') {
-const input = app.querySelector(act === 'add-l1' ? '#pr-add-l1' : '#pr-add-l2');
+const isL1 = act === 'add-l1';
+const input = app.querySelector(isL1 ? '#pr-add-l1' : '#pr-add-l2');
+const enInput = app.querySelector(isL1 ? '#pr-add-l1-en' : '#pr-add-l2-en');
 const name = input.value.trim();
+const nameEn = enInput ? enInput.value.trim() : '';
 if (!name) return;
-const pool = act === 'add-l1' ? state.l1
+const pool = isL1 ? state.l1
 : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
 if (pool.some((x) => x.Title === name)) {
 toast('warn', '「' + name + '」は既に登録されています');
 return;
 }
 run('マスタ追加', async () => {
-auditNote((act === 'add-l1' ? LABEL_L1 : LABEL_L2) + 'マスタに「' + name + '」を追加');
-const body = { Title: name, SortOrder: nextOrder(pool), Active: true };
-if (act === 'add-l2') body.Level1Id = state.selectedL1;
-await addItem(act === 'add-l1' ? LIST_L1 : LIST_L2, body);
+auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに「' + name + '」を追加');
+const body = { Title: name, TitleEn: nameEn, SortOrder: nextOrder(pool), Active: true };
+if (!isL1) body.Level1Id = state.selectedL1;
+await addItem(isL1 ? LIST_L1 : LIST_L2, body);
 await reload();
 toast('ok', '「' + name + '」を追加しました');
 });
@@ -5060,11 +5159,13 @@ openL1PermModal(state, item).then((saved) => { if (saved) run('再読込', reloa
 return;
 }
 if (act === 'rename') {
-const name = await modal({ title: '名称変更', inputValue: item.Title, okLabel: '保存' });
-if (!name || name === item.Title) return;
+const r = await openRenameMasterModal(item);
+if (!r) return;
+if (r.title === item.Title && r.titleEn === (item.TitleEn || '')) return;
 run('名称変更', async () => {
-auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」→「' + name + '」に名称変更');
-await updateItem(listTitle, id, { Title: name });
+auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」→「' + r.title +
+'」(英:' + (r.titleEn || '-') + ')に変更');
+await updateItem(listTitle, id, { Title: r.title, TitleEn: r.titleEn });
 await reload();
 });
 } else if (act === 'del') {

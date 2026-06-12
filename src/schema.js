@@ -60,16 +60,18 @@ async function addViewFields(title, internals) {
 async function setup(log) {
   log('「' + LIST_L1 + '」を確認中…');
   const id1 = await ensureList(LIST_L1, '権限登録リスト用 組織区分(第1階層)マスタ');
+  await ensureField(LIST_L1, 'TitleEn', '英語名', { FieldTypeKind: 2 });
   await ensureField(LIST_L1, 'SortOrder', '並び順', { FieldTypeKind: 9 });
   await ensureField(LIST_L1, 'Active', '有効', { FieldTypeKind: 8, DefaultValue: '1' });
-  await addViewFields(LIST_L1, ['SortOrder', 'Active']);
+  await addViewFields(LIST_L1, ['TitleEn', 'SortOrder', 'Active']);
 
   log('「' + LIST_L2 + '」を確認中…');
   await ensureList(LIST_L2, '権限登録リスト用 組織区分(第2階層)マスタ');
   await ensureLookupField(LIST_L2, 'Level1', '第1階層', id1);
+  await ensureField(LIST_L2, 'TitleEn', '英語名', { FieldTypeKind: 2 });
   await ensureField(LIST_L2, 'SortOrder', '並び順', { FieldTypeKind: 9 });
   await ensureField(LIST_L2, 'Active', '有効', { FieldTypeKind: 8, DefaultValue: '1' });
-  await addViewFields(LIST_L2, ['Level1', 'SortOrder', 'Active']);
+  await addViewFields(LIST_L2, ['Level1', 'TitleEn', 'SortOrder', 'Active']);
 
   log('セットアップ完了');
 }

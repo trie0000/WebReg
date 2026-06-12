@@ -204,3 +204,50 @@ function progressDone() {
   if (_prog.el) _prog.el.remove();
   _prog = null;
 }
+
+// マスタの名称変更(日本語+英語の2項目)モーダル。resolve: {title, titleEn} | null
+function openRenameMasterModal(item) {
+  return new Promise((resolve) => {
+    const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal" role="dialog" aria-modal="true" aria-label="名称変更">
+          <h4>名称変更</h4>
+          <div class="pr-field"><label>名称(日本語)</label>
+            <input type="text" class="pr-input" id="rn-ja"></div>
+          <div class="pr-field"><label>英語名(任意)</label>
+            <input type="text" class="pr-input" id="rn-en"></div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">保存</button>
+          </div>
+        </div>
+      </div>`);
+    back.querySelector('#rn-ja').value = item.Title || '';
+    back.querySelector('#rn-en').value = item.TitleEn || '';
+    const done = (val) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      resolve(val);
+    };
+    const ok = () => {
+      const title = back.querySelector('#rn-ja').value.trim();
+      if (!title) { toast('warn', '日本語の名称は必須です'); return; }
+      done({ title, titleEn: back.querySelector('#rn-en').value.trim() });
+    };
+    let downOnBack = false;
+    back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+    back.addEventListener('click', (e) => {
+      if (e.target === back) { if (downOnBack) done(null); return; }
+      const b = e.target.closest('[data-mact]');
+      if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+    });
+    const onKey = (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.getElementById(ROOT_ID).appendChild(back);
+    back.querySelector('#rn-ja').focus();
+  });
+}

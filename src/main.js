@@ -46,7 +46,7 @@
     const [r1, r2, ru] = await Promise.all([
       // $select=* : 権限グループ割当列(PermRead/PermEdit。未作成でも可)も読む
       spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-      spGet(lt(LIST_L2) + '/items?$select=Id,Title,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+      spGet(lt(LIST_L2) + '/items?$select=Id,Title,TitleEn,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
       state.usersReady
         ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
         : Promise.resolve({ value: [] }),
@@ -88,6 +88,9 @@
     // 未反映の変更の検知(前回「リストへ反映」した時点のスナップショットと比較)
     state.syncDiff = null;
     state.syncFp = null;
+    // 組織区分1ごとの利用者リスト振り分け(日本語/英語/両方)を共通設定から読む
+    try { state.listAssign = await loadListAssign(); } catch { state.listAssign = {}; }
+
     if (state.usersReady) {
       let ss = await loadSyncState();
       // スナップショットが未記録/旧形式(masterが文字列等)なら、現在のマスタを
@@ -629,6 +632,7 @@
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="up" aria-label="上へ" title="上へ">${ico('chevron-up')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="down" aria-label="下へ" title="下へ">${ico('chevron-down')}</button>
         <span class="pr-name" ${kind === 'l1' ? 'data-act="select"' : ''} title="${esc(x.Title)}">${esc(x.Title)}${
+          x.TitleEn ? '<span class="pr-name-en">' + esc(x.TitleEn) + '</span>' : ''}${
           kind === 'l1' ? `<span class="pr-childcount">${l2of(x.Id).length}</span>` : ''}${staleHtml(kind, x)}</span>
         <label class="pr-active" title="有効/無効">
           <input type="checkbox" data-act="active" aria-label="有効" ${x.Active !== false ? 'checked' : ''}>
@@ -663,9 +667,10 @@
         <div class="pr-col">
           <div class="pr-sub"><b>${esc(LABEL_L1)}</b>${diff && diff.l1Reorder ? '<span class="pr-stale">並び替え</span>' : ''}<span class="pr-count">${state.l1.length}件</span></div>
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称(日本語)">
+            <input type="text" class="pr-input" id="pr-add-l1-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${state.l1.map((x) =>
             rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
@@ -677,9 +682,10 @@
             <span class="pr-count">${sel ? l2of(sel.Id).length + '件' : ''}</span></div>
           ${sel ? `
           <div class="pr-toolbar">
-            <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称を入力">
+            <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称(日本語)">
+            <input type="text" class="pr-input" id="pr-add-l2-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l2">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
             '<div class="pr-empty">未登録</div>'}</div>`
@@ -957,49 +963,56 @@
       const pool = isL1 ? state.l1
         : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
       const existing = new Set(pool.map((x) => x.Title));
-      const names = [];
+      const entries = [];
       let dup = 0;
+      // 1行 = 日本語[タブ または カンマ]英語(英語は任意)
       for (const raw of text.split(/\r?\n/)) {
-        const n = raw.trim();
+        if (!raw.trim()) continue;
+        const parts = raw.split(/\t|,|，/);
+        const n = (parts[0] || '').trim();
+        const en = (parts[1] || '').trim();
         if (!n) continue;
         if (existing.has(n)) { dup++; continue; }
         existing.add(n);
-        names.push(n);
+        entries.push({ name: n, en });
       }
-      if (!names.length) {
+      if (!entries.length) {
         toast('warn', '追加できる名称がありません' + (dup ? '(すべて既存と重複)' : ''));
         return;
       }
       run('まとめて追加', async () => {
-        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + names.length + '件をまとめて追加');
+        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + entries.length + '件をまとめて追加');
         let order = nextOrder(pool);
-        for (const n of names) {
-          const body = { Title: n, SortOrder: order, Active: true };
+        for (const e of entries) {
+          const body = { Title: e.name, TitleEn: e.en, SortOrder: order, Active: true };
           if (!isL1) body.Level1Id = state.selectedL1;
           await addItem(isL1 ? LIST_L1 : LIST_L2, body);
           order += 10;
         }
         await reload();
-        toast('ok', names.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
+        toast('ok', entries.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
       });
       return;
     }
 
     if (act === 'add-l1' || act === 'add-l2') {
-      const input = app.querySelector(act === 'add-l1' ? '#pr-add-l1' : '#pr-add-l2');
+      const isL1 = act === 'add-l1';
+      const input = app.querySelector(isL1 ? '#pr-add-l1' : '#pr-add-l2');
+      const enInput = app.querySelector(isL1 ? '#pr-add-l1-en' : '#pr-add-l2-en');
       const name = input.value.trim();
+      const nameEn = enInput ? enInput.value.trim() : '';
       if (!name) return;
-      const pool = act === 'add-l1' ? state.l1
+      const pool = isL1 ? state.l1
         : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
       if (pool.some((x) => x.Title === name)) {
         toast('warn', '「' + name + '」は既に登録されています');
         return;
       }
       run('マスタ追加', async () => {
-        auditNote((act === 'add-l1' ? LABEL_L1 : LABEL_L2) + 'マスタに「' + name + '」を追加');
-        const body = { Title: name, SortOrder: nextOrder(pool), Active: true };
-        if (act === 'add-l2') body.Level1Id = state.selectedL1;
-        await addItem(act === 'add-l1' ? LIST_L1 : LIST_L2, body);
+        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに「' + name + '」を追加');
+        const body = { Title: name, TitleEn: nameEn, SortOrder: nextOrder(pool), Active: true };
+        if (!isL1) body.Level1Id = state.selectedL1;
+        await addItem(isL1 ? LIST_L1 : LIST_L2, body);
         await reload();
         toast('ok', '「' + name + '」を追加しました');
       });
@@ -1014,11 +1027,13 @@
     }
 
     if (act === 'rename') {
-      const name = await modal({ title: '名称変更', inputValue: item.Title, okLabel: '保存' });
-      if (!name || name === item.Title) return;
+      const r = await openRenameMasterModal(item);
+      if (!r) return;
+      if (r.title === item.Title && r.titleEn === (item.TitleEn || '')) return;
       run('名称変更', async () => {
-        auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」→「' + name + '」に名称変更');
-        await updateItem(listTitle, id, { Title: name });
+        auditNote((kind === 'l1' ? LABEL_L1 : LABEL_L2) + 'マスタ「' + item.Title + '」→「' + r.title +
+          '」(英:' + (r.titleEn || '-') + ')に変更');
+        await updateItem(listTitle, id, { Title: r.title, TitleEn: r.titleEn });
         await reload();
       });
     } else if (act === 'del') {

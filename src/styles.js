@@ -186,6 +186,7 @@ const css = `
 }
 #${ROOT_ID} .pr-row[data-kind="l1"] .pr-name{ cursor:pointer; }
 #${ROOT_ID} .pr-row.off .pr-name{ color:var(--ink-4); text-decoration:line-through; }
+#${ROOT_ID} .pr-name-en{ margin-left:var(--s-3); font-size:var(--fs-xs); color:var(--ink-4); }
 #${ROOT_ID} .pr-row .pr-childcount{
   font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--ink-3);
   background:var(--paper-2-strong); border-radius:999px; padding:0 var(--s-3); margin-left:var(--s-2);
