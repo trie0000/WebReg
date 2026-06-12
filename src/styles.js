@@ -314,6 +314,7 @@ const css = `
 }
 #${ROOT_ID} .pr-diff-tag--add{ background:var(--accent-soft); color:var(--accent-strong); }
 #${ROOT_ID} .pr-diff-tag--del{ background:rgba(184,83,74,.14); color:var(--danger); }
+#${ROOT_ID} .pr-diff-tag--warn{ background:rgba(196,127,28,.14); color:var(--warn); }
 
 /* ---- progress modal(処理中の進捗+残り時間) ---- */
 #${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }

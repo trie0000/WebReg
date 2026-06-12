@@ -200,9 +200,13 @@ function pickXlsxFile() {
   });
 }
 
-// 取込計画: シート群 → {entries, adds, updates, deletes, notFound, missingL1, missingL2, skipped}
+// 取込計画: シート群 →
+//   {entries, adds, updates, deletes, notFound, warnings, missingL1, missingL2, skipped}
+// 入力不備(必須欄が空・追加/更新なのに組織区分2が無チェック等)の列は warnings に分離し、
+// 取込対象から外す(確認モーダルで知らせ、スキップして続行するか選んでもらう)
 function buildXlsxImportPlan(state, sheets) {
   const entries = [];
+  const warnings = [];
   const missingL1 = [];
   const missingL2 = [];
   const l1Titles = new Set(state.l1.map((x) => x.Title));
@@ -245,21 +249,41 @@ function buildXlsxImportPlan(state, sheets) {
     const width = Math.max(0, ...rows.map((r) => (r || []).length));
     for (let c = 1; c < width; c++) {
       const name = cellAt(rName, c);
-      if (!name) continue;
-      entries.push({
+      const e = {
         l1: l1Title,
         name,
         company: rComp >= 0 ? cellAt(rComp, c) : '',
         email: rMail >= 0 ? cellAt(rMail, c) : '',
         permission: cellAt(rPerm, c),
-        action: cellAt(rAct, c) || '変更なし',
+        action: cellAt(rAct, c),
         l2all: rAll >= 0 && xlsxIsCheck(cellAt(rAll, c)),
         org2names: l2rows.filter((x) => xlsxIsCheck(cellAt(x.r, c))).map((x) => x.name),
-      });
+      };
+      const hasContent = !!(name || e.company || e.email || e.permission || e.action ||
+        e.l2all || e.org2names.length);
+      if (!hasContent) continue; // 追記用の空列
+      // 入力不備チェック(不備の列はスキップ対象として警告)
+      const reasons = [];
+      if (!name) reasons.push('利用者名が空');
+      if (!e.action) reasons.push('更新内容が未選択');
+      if (e.action === '追加' || e.action === '更新') {
+        if (!e.email) reasons.push('メールアドレスが空');
+        if (!e.permission) reasons.push('権限が空');
+        if (!e.l2all && !e.org2names.length) reasons.push(LABEL_L2 + 'のチェックがありません');
+      }
+      if (reasons.length) {
+        warnings.push({
+          name: name || '(利用者名なし)',
+          where: sh.name + 'シート ' + xlsxColName(c) + '列',
+          reasons,
+        });
+        continue;
+      }
+      entries.push(e);
     }
   }
   if (!found) throw new Error('このツールのエクスポート形式のシート(A1が「' + XLSX_LBL_L1 + '」)が見つかりません');
-  if (!entries.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
+  if (!entries.length && !warnings.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
 
   // 「更新内容」で振り分け。更新/削除はメールアドレス(無ければ利用者名)で既存行と突合
   const byEmail = new Map(state.users.filter((u) => u.Email).map((u) => [u.Email.toLowerCase(), u]));
@@ -283,7 +307,7 @@ function buildXlsxImportPlan(state, sheets) {
       skipped++; // 変更なし(および想定外の値)
     }
   }
-  return { entries, adds, updates, deletes, notFound, missingL1, missingL2, skipped };
+  return { entries, adds, updates, deletes, notFound, warnings, missingL1, missingL2, skipped };
 }
 
 // 取込列 → リストアイテムのボディ。更新時は前回チェックのクリアも含める。
@@ -359,6 +383,10 @@ function openXlsxConfirmModal(state, plan, changed) {
     const delHtml = plan.deletes.map(({ u }) => `
       <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag pr-diff-tag--del">論理削除</span>
         ${esc(u.OrgLevel1 || '')}</div>`).join('');
+    const warnHtml = plan.warnings.map((w) => `
+      <div class="pr-diff-item"><b>${esc(w.name)}</b><span class="pr-diff-tag pr-diff-tag--warn">スキップ</span>
+        <small>${esc(w.where)}</small><br>${esc(w.reasons.join(' / '))}</div>`).join('');
+    const actionCount = plan.adds.length + changed.length + plan.deletes.length;
     const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
@@ -373,6 +401,12 @@ function openXlsxConfirmModal(state, plan, changed) {
             <label>取り込まれる変更(変更前 → 変更後)</label>
             <div class="pr-checks pr-diff-list">${addHtml}${updHtml}${delHtml}</div>
           </div>` : ''}
+          ${plan.warnings.length ? `
+          <div class="pr-field">
+            <label style="color:var(--warn)">⚠ 入力不備のため取り込まずスキップする列(${plan.warnings.length}件)。
+              取り込む場合はキャンセルしてExcelを修正してください</label>
+            <div class="pr-checks pr-diff-list">${warnHtml}</div>
+          </div>` : ''}
           ${plan.notFound.length ? `<span class="pr-note" style="color:var(--danger)">
             ⚠ 更新/削除の対象が見つからない列 ${plan.notFound.length}件(スキップされます):
             ${plan.notFound.slice(0, 5).map((x) => esc(x.name)).join('、')}${plan.notFound.length > 5 ? ' ほか' : ''}</span>` : ''}
@@ -385,7 +419,8 @@ function openXlsxConfirmModal(state, plan, changed) {
           </div>` : ''}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
-            <button class="pr-btn pr-btn--primary" data-mact="ok">取り込む</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok" ${actionCount ? '' : 'disabled'}>${
+              plan.warnings.length ? '不備の列をスキップして取り込む' : '取り込む'}</button>
           </div>
         </div>
       </div>`);

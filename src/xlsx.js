@@ -275,15 +275,25 @@ async function xlsxParse(buf) {
       }
     }
   }
-  // 共有文字列(Excel が再保存すると文字列はこちらに移る)。リッチテキストは <t> を連結
+  // 文字列要素の <t> を連結する。⚠ Excel が IME 入力セルに保存する「ふりがな」
+  // (<rPh> のカタカナ)を含めると本文の後ろに勝手に付いてしまうため除外する
+  const textOf = (node) => {
+    let s = '';
+    for (const ch of node.children) {
+      if (ch.localName === 'rPh' || ch.localName === 'phoneticPr') continue;
+      if (ch.localName === 't') s += ch.textContent;
+      else s += textOf(ch);
+    }
+    return s;
+  };
+  // 共有文字列(Excel が再保存すると文字列はこちらに移る)
   const shared = [];
   if (files.has('xl/sharedStrings.xml')) {
     const ss = xlsxParseXml(files.get('xl/sharedStrings.xml'));
     for (const si of ss.getElementsByTagName('*')) {
-      if (si.localName !== 'si') continue;
-      let s = '';
-      for (const t of si.getElementsByTagName('*')) if (t.localName === 't') s += t.textContent;
-      shared.push(s);
+      if (si.localName === 'si' && si.parentElement && si.parentElement.localName === 'sst') {
+        shared.push(textOf(si));
+      }
     }
   }
 
@@ -311,7 +321,7 @@ async function xlsxParse(buf) {
         const t = c.getAttribute('t') || '';
         let v = '';
         if (t === 'inlineStr') {
-          for (const tEl of c.getElementsByTagName('*')) if (tEl.localName === 't') v += tEl.textContent;
+          for (const isEl of c.children) if (isEl.localName === 'is') v += textOf(isEl);
         } else {
           let vEl = null;
           for (const ch of c.children) if (ch.localName === 'v') vEl = ch;

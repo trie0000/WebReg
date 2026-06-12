@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-c3e2a4a3" !== 'undefined' ? "0.1.0-c3e2a4a3" : 'dev';
+const BUILD = typeof "0.1.0-1a790f3d" !== 'undefined' ? "0.1.0-1a790f3d" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1014,6 +1014,7 @@ const css = `
 }
 #${ROOT_ID} .pr-diff-tag--add{ background:var(--accent-soft); color:var(--accent-strong); }
 #${ROOT_ID} .pr-diff-tag--del{ background:rgba(184,83,74,.14); color:var(--danger); }
+#${ROOT_ID} .pr-diff-tag--warn{ background:rgba(196,127,28,.14); color:var(--warn); }
 /* ---- progress modal(処理中の進捗+残り時間) ---- */
 #${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }
 #${ROOT_ID} .pr-prog-msg{ font-size:var(--fs-md); color:var(--ink-3); min-height:1.5em; }
@@ -2576,14 +2577,22 @@ relMap.set(r.getAttribute('Id'), r.getAttribute('Target').replace(/^\//, ''));
 }
 }
 }
+const textOf = (node) => {
+let s = '';
+for (const ch of node.children) {
+if (ch.localName === 'rPh' || ch.localName === 'phoneticPr') continue;
+if (ch.localName === 't') s += ch.textContent;
+else s += textOf(ch);
+}
+return s;
+};
 const shared = [];
 if (files.has('xl/sharedStrings.xml')) {
 const ss = xlsxParseXml(files.get('xl/sharedStrings.xml'));
 for (const si of ss.getElementsByTagName('*')) {
-if (si.localName !== 'si') continue;
-let s = '';
-for (const t of si.getElementsByTagName('*')) if (t.localName === 't') s += t.textContent;
-shared.push(s);
+if (si.localName === 'si' && si.parentElement && si.parentElement.localName === 'sst') {
+shared.push(textOf(si));
+}
 }
 }
 const sheets = [];
@@ -2610,7 +2619,7 @@ autoCol = ci + 1;
 const t = c.getAttribute('t') || '';
 let v = '';
 if (t === 'inlineStr') {
-for (const tEl of c.getElementsByTagName('*')) if (tEl.localName === 't') v += tEl.textContent;
+for (const isEl of c.children) if (isEl.localName === 'is') v += textOf(isEl);
 } else {
 let vEl = null;
 for (const ch of c.children) if (ch.localName === 'v') vEl = ch;
@@ -2803,6 +2812,7 @@ inp.click();
 }
 function buildXlsxImportPlan(state, sheets) {
 const entries = [];
+const warnings = [];
 const missingL1 = [];
 const missingL2 = [];
 const l1Titles = new Set(state.l1.map((x) => x.Title));
@@ -2844,21 +2854,40 @@ missingL2.push({ l1: l1Title, name: x.name });
 const width = Math.max(0, ...rows.map((r) => (r || []).length));
 for (let c = 1; c < width; c++) {
 const name = cellAt(rName, c);
-if (!name) continue;
-entries.push({
+const e = {
 l1: l1Title,
 name,
 company: rComp >= 0 ? cellAt(rComp, c) : '',
 email: rMail >= 0 ? cellAt(rMail, c) : '',
 permission: cellAt(rPerm, c),
-action: cellAt(rAct, c) || '変更なし',
+action: cellAt(rAct, c),
 l2all: rAll >= 0 && xlsxIsCheck(cellAt(rAll, c)),
 org2names: l2rows.filter((x) => xlsxIsCheck(cellAt(x.r, c))).map((x) => x.name),
+};
+const hasContent = !!(name || e.company || e.email || e.permission || e.action ||
+e.l2all || e.org2names.length);
+if (!hasContent) continue;
+const reasons = [];
+if (!name) reasons.push('利用者名が空');
+if (!e.action) reasons.push('更新内容が未選択');
+if (e.action === '追加' || e.action === '更新') {
+if (!e.email) reasons.push('メールアドレスが空');
+if (!e.permission) reasons.push('権限が空');
+if (!e.l2all && !e.org2names.length) reasons.push(LABEL_L2 + 'のチェックがありません');
+}
+if (reasons.length) {
+warnings.push({
+name: name || '(利用者名なし)',
+where: sh.name + 'シート ' + xlsxColName(c) + '列',
+reasons,
 });
+continue;
+}
+entries.push(e);
 }
 }
 if (!found) throw new Error('このツールのエクスポート形式のシート(A1が「' + XLSX_LBL_L1 + '」)が見つかりません');
-if (!entries.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
+if (!entries.length && !warnings.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
 const byEmail = new Map(state.users.filter((u) => u.Email).map((u) => [u.Email.toLowerCase(), u]));
 const byName = new Map(state.users.map((u) => [u.Title, u]));
 const adds = [];
@@ -2880,7 +2909,7 @@ else deletes.push({ e, u });
 skipped++;
 }
 }
-return { entries, adds, updates, deletes, notFound, missingL1, missingL2, skipped };
+return { entries, adds, updates, deletes, notFound, warnings, missingL1, missingL2, skipped };
 }
 function buildXlsxBody(state, e, existing) {
 const body = {
@@ -2947,6 +2976,10 @@ const updHtml = changed.map(({ e, u }) => `
 const delHtml = plan.deletes.map(({ u }) => `
       <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag pr-diff-tag--del">論理削除</span>
         ${esc(u.OrgLevel1 || '')}</div>`).join('');
+const warnHtml = plan.warnings.map((w) => `
+      <div class="pr-diff-item"><b>${esc(w.name)}</b><span class="pr-diff-tag pr-diff-tag--warn">スキップ</span>
+        <small>${esc(w.where)}</small><br>${esc(w.reasons.join(' / '))}</div>`).join('');
+const actionCount = plan.adds.length + changed.length + plan.deletes.length;
 const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
@@ -2961,6 +2994,12 @@ const back = el(`
             <label>取り込まれる変更(変更前 → 変更後)</label>
             <div class="pr-checks pr-diff-list">${addHtml}${updHtml}${delHtml}</div>
           </div>` : ''}
+          ${plan.warnings.length ? `
+          <div class="pr-field">
+            <label style="color:var(--warn)">⚠ 入力不備のため取り込まずスキップする列(${plan.warnings.length}件)。
+              取り込む場合はキャンセルしてExcelを修正してください</label>
+            <div class="pr-checks pr-diff-list">${warnHtml}</div>
+          </div>` : ''}
           ${plan.notFound.length ? `<span class="pr-note" style="color:var(--danger)">
             ⚠ 更新/削除の対象が見つからない列 ${plan.notFound.length}件(スキップされます):
             ${plan.notFound.slice(0, 5).map((x) => esc(x.name)).join('、')}${plan.notFound.length > 5 ? ' ほか' : ''}</span>` : ''}
@@ -2973,7 +3012,8 @@ const back = el(`
           </div>` : ''}
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
-            <button class="pr-btn pr-btn--primary" data-mact="ok">取り込む</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok" ${actionCount ? '' : 'disabled'}>${
+plan.warnings.length ? '不備の列をスキップして取り込む' : '取り込む'}</button>
           </div>
         </div>
       </div>`);
@@ -3361,7 +3401,7 @@ return;
 setStatus(state.ready ? '準備OK / ' + BUILD : 'マスタリスト未作成');
 }
 const changed = plan.updates.filter(({ e, u }) => xlsxDiffLines(state, e, u).length > 0);
-if (!plan.adds.length && !changed.length && !plan.deletes.length) {
+if (!plan.adds.length && !changed.length && !plan.deletes.length && !plan.warnings.length) {
 toast(plan.notFound.length ? 'warn' : 'ok',
 '取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、最新のリストとの差分がありません)' +
 (plan.notFound.length ? ' / 突合できない列 ' + plan.notFound.length + '件' : ''));

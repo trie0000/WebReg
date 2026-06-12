@@ -351,7 +351,8 @@
     }
     // 「更新」のうち、最新のリストと比べて差分のある列だけが取込対象
     const changed = plan.updates.filter(({ e, u }) => xlsxDiffLines(state, e, u).length > 0);
-    if (!plan.adds.length && !changed.length && !plan.deletes.length) {
+    // 入力不備の警告があれば、取込対象が無くてもモーダルで知らせる(OKは無効)
+    if (!plan.adds.length && !changed.length && !plan.deletes.length && !plan.warnings.length) {
       toast(plan.notFound.length ? 'warn' : 'ok',
         '取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、最新のリストとの差分がありません)' +
         (plan.notFound.length ? ' / 突合できない列 ' + plan.notFound.length + '件' : ''));
