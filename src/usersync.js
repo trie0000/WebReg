@@ -74,6 +74,18 @@ async function syncMastersToUserList(state, log) {
   log(LABEL_L1 + 'の選択肢を更新中…');
   await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
 
+  // 旧既定の「参照者」は不要(2026-06 仕様変更)。どの行にも使われていなければ選択肢から外す
+  try {
+    const pm = await spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices");
+    if ((pm.Choices || []).includes('参照者')) {
+      const used = await spGet(lt(LIST_USERS) + "/items?$select=Id&$filter=Permission eq '参照者'&$top=1");
+      if (!(used.value || []).length) {
+        await setChoices(LIST_USERS, 'Permission', '権限',
+          pm.Choices.filter((x) => x !== '参照者'), true);
+      }
+    }
+  } catch { /* 選択肢の整理は失敗しても反映は続行 */ }
+
   // 組織区分2: 既存の L2_* 列を取得して 追加/改名 を判断
   log(LABEL_L2 + 'のチェック列を更新中…');
   const existing = await spGet(lt(LIST_USERS) +

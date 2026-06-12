@@ -59,7 +59,8 @@ function xlsxSheetForL1(state, l1) {
   rows.push([label(XLSX_LBL_MAIL)].concat(cellRow(users.map((u) => u.Email || ''), XST_BORDER)));
   rows.push([label(XLSX_LBL_PERM)].concat(cellRow(users.map((u) => u.Permission || ''), XST_CENTER)));
   rows.push([label(XLSX_LBL_ACTION)].concat(cellRow(users.map(() => '変更なし'), XST_CENTER)));
-  rows.push([label(XLSX_LBL_L2ALL)].concat(cellRow(users.map((u) => u.L2All === true ? XLSX_CHECK : ''), XST_CENTER)));
+  // 「組織区分2のすべて」はExcelには出さない(SP標準フォーム専用の概念。
+  //  すべて=ON の利用者は全組織区分2に ✓ を入れて出力する)
   for (const m of l2list) {
     rows.push([label(m.Title)].concat(cellRow(
       users.map((u) => (u.L2All === true || u['L2_' + m.Id] === true) ? XLSX_CHECK : ''), XST_CENTER)));
@@ -73,8 +74,8 @@ function xlsxSheetForL1(state, l1) {
     validations: [
       { sqref: 'B5:' + last + '5', list: state.choices.permission },
       { sqref: 'B6:' + last + '6', list: XLSX_ACTIONS },
-      // チェック欄(すべて行 + 組織区分2の各行)も ✓ のリスト選択(空欄に戻すのは Delete)
-      { sqref: 'B7:' + last + (7 + l2list.length), list: [XLSX_CHECK] },
+      // チェック欄(組織区分2の各行)も ✓ のリスト選択(空欄に戻すのは Delete)
+      { sqref: 'B7:' + last + (6 + l2list.length), list: [XLSX_CHECK] },
     ],
   };
 }

@@ -29,7 +29,7 @@ applyListPrefix();
 
 // 変更区分/権限の既定選択肢(リスト作成時のみ使用。以後はリスト列のChoicesが正)
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
-const PERMISSION_DEFAULTS = ['参照者', '更新者'];
+const PERMISSION_DEFAULTS = ['更新者', '閲覧者'];
 
 // 詳細ログ(コンソール)。エラーは常時出力、'1' なら全リクエストを出力
 const LS_DEBUG = 'webreg.debug';
