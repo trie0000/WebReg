@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-4a44e162" !== 'undefined' ? "0.1.0-4a44e162" : 'dev';
+const BUILD = typeof "0.1.0-c5e48e1a" !== 'undefined' ? "0.1.0-c5e48e1a" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -567,21 +567,6 @@ else await spPost(lt(LIST_CONF) + '/items', body);
 }
 const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).length);
 const CONF_KEY_SYNC_FP = 'syncFingerprint';
-function computeMasterFp(state) {
-const activeL1 = state.l1.filter((x) => x.Active !== false);
-const ids = new Set(activeL1.map((x) => x.Id));
-const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && ids.has(x.Level1.Id));
-return JSON.stringify({
-l1: activeL1.map((x) => x.Title),
-l2: activeL2.map((x) => [x.Level1.Id, x.Title]),
-});
-}
-function computePermsFp(state, adminIds) {
-return JSON.stringify({
-g: state.l1.filter((x) => x.Active !== false).map((x) => [x.Title, permGroupIdsOf(x)]),
-a: (adminIds || []).slice().sort((a, b) => a - b),
-});
-}
 async function loadSyncState() {
 try {
 if (!(await listId(LIST_CONF))) return { adminIds: [], fp: null };
@@ -749,6 +734,150 @@ else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
 document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
 });
+}
+function computeMasterSnap(state) {
+return {
+l1: state.l1.map((x) => ({ id: x.Id, t: x.Title, o: x.SortOrder || 0, a: x.Active !== false })),
+l2: state.l2.map((x) => ({
+id: x.Id, t: x.Title, o: x.SortOrder || 0, a: x.Active !== false,
+p: x.Level1 ? x.Level1.Id : null,
+})),
+};
+}
+function computePermsSnap(state, adminIds) {
+return {
+g: state.l1.map((x) => [x.Id, permGroupIdsOf(x).slice().sort((a, b) => a - b)]),
+admins: (adminIds || []).slice().sort((a, b) => a - b),
+};
+}
+function diffSyncState(state, adminIds, fp) {
+const res = {
+pending: false, canDiscard: false,
+l1Badges: new Map(), l2Badges: new Map(),
+l1Reorder: false, l2Reorder: false,
+removed: [], adminsChanged: false, summary: [],
+masterUnknown: false, permsUnknown: false,
+};
+const counts = {};
+const bump = (k, n) => { counts[k] = (counts[k] || 0) + (n == null ? 1 : n); };
+const badge = (map, id, label) => {
+if (!map.has(id)) map.set(id, []);
+map.get(id).push(label);
+bump(label);
+};
+const masterSnap = fp && typeof fp.master === 'object' ? fp.master : null;
+if (!masterSnap) {
+res.masterUnknown = true;
+res.pending = true;
+} else {
+const cur = computeMasterSnap(state);
+const cmp = (kind, curArr, oldArr) => {
+const oldBy = new Map(oldArr.map((x) => [x.id, x]));
+const curIds = new Set(curArr.map((x) => x.id));
+const map = kind === 'l1' ? res.l1Badges : res.l2Badges;
+for (const c of curArr) {
+const o = oldBy.get(c.id);
+if (!o) { badge(map, c.id, '追加'); continue; }
+if (o.t !== c.t) badge(map, c.id, '名称変更');
+if (o.a !== c.a) badge(map, c.id, c.a ? '有効化' : '無効化');
+if (kind === 'l2' && o.p !== c.p) badge(map, c.id, '移動');
+}
+for (const o of oldArr) {
+if (!curIds.has(o.id)) {
+res.removed.push((kind === 'l1' ? LABEL_L1 : LABEL_L2) + '「' + o.t + '」');
+bump('削除');
+}
+}
+const oldOrder = oldArr.filter((x) => curIds.has(x.id)).map((x) => x.id);
+const curOrder = curArr.filter((x) => oldBy.has(x.id)).map((x) => x.id);
+return JSON.stringify(oldOrder) !== JSON.stringify(curOrder);
+};
+res.l1Reorder = cmp('l1', cur.l1, masterSnap.l1 || []);
+res.l2Reorder = cmp('l2', cur.l2, masterSnap.l2 || []);
+if (res.l1Reorder || res.l2Reorder) bump('並び替え', 0);
+}
+const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
+const curPerms = computePermsSnap(state, adminIds);
+if (!permsSnap) {
+if (state.l1.some((x) => permGroupIdsOf(x).length) || (adminIds || []).length) {
+res.permsUnknown = true;
+res.pending = true;
+for (const x of state.l1) {
+if (permGroupIdsOf(x).length) badge(res.l1Badges, x.Id, '権限未反映');
+}
+}
+} else {
+const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids)]));
+for (const [id, ids] of curPerms.g) {
+if ((oldG.get(id) || '[]') !== JSON.stringify(ids)) badge(res.l1Badges, id, '権限未反映');
+}
+res.adminsChanged = JSON.stringify(curPerms.admins) !== JSON.stringify(permsSnap.admins || []);
+if (res.adminsChanged) bump('管理者グループ変更');
+}
+res.pending = res.pending || res.l1Badges.size > 0 || res.l2Badges.size > 0 ||
+res.l1Reorder || res.l2Reorder || res.removed.length > 0 || res.adminsChanged;
+res.canDiscard = res.pending && !!masterSnap &&
+(!res.permsUnknown) && (permsSnap != null ||
+!(res.adminsChanged || [...res.l1Badges.values()].some((b) => b.includes('権限未反映'))));
+if (res.l1Reorder || res.l2Reorder) res.summary.push('並び替え');
+for (const [k, n] of Object.entries(counts)) {
+if (k === '並び替え') continue;
+res.summary.push(k + (n > 1 ? ' ' + n + '件' : ''));
+}
+if (res.masterUnknown) res.summary.push('(前回反映の記録なし — 反映で記録されます)');
+return res;
+}
+async function revertSyncState(state, fp, log) {
+const out = { reverted: 0, deleted: 0, missing: [] };
+const masterSnap = fp.master;
+const cur = computeMasterSnap(state);
+const permsSnap = (typeof fp.perms === 'object' && fp.perms) || null;
+const oldG = permsSnap ? new Map((permsSnap.g || []).map(([id, ids]) => [id, ids])) : null;
+const doList = async (kind, listTitle, curArr, oldArr) => {
+const oldBy = new Map(oldArr.map((x) => [x.id, x]));
+for (const c of curArr) {
+log('変更を破棄中…');
+const o = oldBy.get(c.id);
+if (!o) {
+await spDelete(lt(listTitle) + '/items(' + c.id + ')');
+out.deleted++;
+continue;
+}
+const body = {};
+if (o.t !== c.t) body.Title = o.t;
+if ((o.o || 0) !== (c.o || 0)) body.SortOrder = o.o || 0;
+if (o.a !== c.a) body.Active = o.a;
+if (kind === 'l2' && o.p !== c.p && o.p != null) body.Level1Id = o.p;
+if (kind === 'l1' && oldG) {
+const item = state.l1.find((x) => x.Id === c.id);
+const curIds = item ? permGroupIdsOf(item).slice().sort((a, b) => a - b) : [];
+const oldIds = (oldG.get(c.id) || []).slice().sort((a, b) => a - b);
+if (JSON.stringify(curIds) !== JSON.stringify(oldIds)) {
+await ensurePermColumns();
+body.PermEdit = JSON.stringify(oldIds);
+if (item && item.PermRead !== undefined) body.PermRead = '[]';
+}
+}
+if (Object.keys(body).length) {
+await spMerge(lt(listTitle) + '/items(' + c.id + ')', body);
+out.reverted++;
+}
+}
+for (const o of oldArr) {
+if (!curArr.some((c) => c.id === o.id)) out.missing.push(o.t);
+}
+};
+await doList('l2', LIST_L2, cur.l2, masterSnap.l2 || []);
+await doList('l1', LIST_L1, cur.l1, masterSnap.l1 || []);
+if (permsSnap) {
+const curAdmins = await loadAdminGroupIds();
+const oldAdmins = (permsSnap.admins || []).slice().sort((a, b) => a - b);
+if (JSON.stringify(curAdmins.slice().sort((a, b) => a - b)) !== JSON.stringify(oldAdmins)) {
+await saveAdminGroupIds(oldAdmins);
+out.reverted++;
+}
+}
+return out;
 }
 const ICONS = {
 'chevron-up': '<path d="M6 15l6-6 6 6"/>',
@@ -1055,10 +1184,19 @@ const css = `
   font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
 }
 #${ROOT_ID} .pr-pending{
+  display:flex; align-items:center; gap:var(--s-5);
   margin:0 var(--gutter); margin-top:var(--s-5); padding:var(--s-4) var(--s-6);
   border:1px solid rgba(196,127,28,.4); border-radius:var(--r-2);
   background:rgba(196,127,28,.10); color:var(--warn); font-size:var(--fs-md);
 }
+#${ROOT_ID} .pr-pending span{ flex:1; min-width:0; }
+/* 未反映の種類バッジ(マスタ行・列見出し) */
+#${ROOT_ID} .pr-stale{
+  display:inline-block; margin-left:var(--s-2); padding:0 var(--s-3);
+  border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap;
+  background:rgba(196,127,28,.14); color:var(--warn);
+}
+#${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
 #${ROOT_ID} .pr-diff-item{
@@ -3247,15 +3385,13 @@ permission: pmChoices,
 }
 if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
 if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
-state.syncPending = null;
+state.syncDiff = null;
+state.syncFp = null;
 if (state.usersReady) {
 const ss = await loadSyncState();
 state.adminGroupIds = ss.adminIds;
-const permsConfigured = hasAnyPermConfig(state) || ss.adminIds.length > 0;
-state.syncPending = {
-master: !ss.fp || ss.fp.master !== computeMasterFp(state),
-perms: permsConfigured && (!ss.fp || ss.fp.perms !== computePermsFp(state, ss.adminIds)),
-};
+state.syncFp = ss.fp;
+state.syncDiff = diffSyncState(state, ss.adminIds, ss.fp);
 }
 }
 const nextOrder = (items) => items.reduce((m, x) => Math.max(m, x.SortOrder || 0), 0) + 10;
@@ -3612,12 +3748,17 @@ const n = permGroupIdsOf(x).length;
 return `<button class="pr-btn pr-btn--icon pr-btn--icon-action${n ? ' pr-perm-on' : ''}" data-act="perm"
         aria-label="権限グループ" title="権限グループの割当${n ? '(' + n + '件)' : '(未設定)'}">${ico('key')}</button>`;
 };
+const diff = state.syncDiff;
+const staleHtml = (kind, x) => {
+const labels = diff ? (kind === 'l1' ? diff.l1Badges : diff.l2Badges).get(x.Id) || [] : [];
+return labels.map((b) => `<span class="pr-stale${b === '権限未反映' ? ' pr-stale--perm' : ''}">${esc(b)}</span>`).join('');
+};
 const rowHtml = (x, kind, extra) => `
       <div class="pr-row${x.Active === false ? ' off' : ''}${extra || ''}" data-kind="${kind}" data-id="${x.Id}">
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="up" aria-label="上へ" title="上へ">${ico('chevron-up')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--ghost" data-act="down" aria-label="下へ" title="下へ">${ico('chevron-down')}</button>
         <span class="pr-name" ${kind === 'l1' ? 'data-act="select"' : ''} title="${esc(x.Title)}">${esc(x.Title)}${
-kind === 'l1' ? `<span class="pr-childcount">${l2of(x.Id).length}</span>` : ''}</span>
+kind === 'l1' ? `<span class="pr-childcount">${l2of(x.Id).length}</span>` : ''}${staleHtml(kind, x)}</span>
         <label class="pr-active" title="有効/無効">
           <input type="checkbox" data-act="active" aria-label="有効" ${x.Active !== false ? 'checked' : ''}>
         </label>
@@ -3633,14 +3774,14 @@ return `
           <button class="pr-btn pr-btn--primary" data-act="setup">${ico('plus')}初期セットアップ</button>
         </div>`;
 }
-const pend = state.usersReady && state.syncPending &&
-(state.syncPending.master || state.syncPending.perms);
+const pend = state.usersReady && diff && diff.pending;
 return `
       ${pend ? `
-      <div class="pr-pending">⚠ 未反映の変更があります: ${[
-state.syncPending.master ? 'マスタ(組織区分)' : '',
-state.syncPending.perms ? '権限グループ割当' : ''].filter(Boolean).join(' / ')}
-        — 「リストへ反映」を実行してください</div>` : ''}
+      <div class="pr-pending"><span>⚠ 未反映の変更: ${esc(diff.summary.join(' / ') || '(内訳不明)')}${
+diff.removed.length ? ' — 削除: ' + esc(diff.removed.slice(0, 3).join('、')) + (diff.removed.length > 3 ? ' ほか' : '') : ''}
+        — 「リストへ反映」で適用できます</span>
+        ${diff.canDiscard ? `<button class="pr-btn pr-btn--sm pr-btn--danger" data-act="discard-pending">変更を破棄して戻す</button>` : ''}
+      </div>` : ''}
       <div class="pr-syncbar">
         <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)。
           権限グループ割当があれば各行のアクセス権も適用します</span>
@@ -3648,7 +3789,7 @@ state.syncPending.perms ? '権限グループ割当' : ''].filter(Boolean).join(
       </div>
       <div class="pr-cols">
         <div class="pr-col">
-          <div class="pr-sub"><b>${esc(LABEL_L1)}</b><span class="pr-count">${state.l1.length}件</span></div>
+          <div class="pr-sub"><b>${esc(LABEL_L1)}</b>${diff && diff.l1Reorder ? '<span class="pr-stale">並び替え</span>' : ''}<span class="pr-count">${state.l1.length}件</span></div>
           <div class="pr-toolbar">
             <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称を入力">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
@@ -3659,7 +3800,8 @@ rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
 '<div class="pr-empty">未登録</div>'}</div>
         </div>
         <div class="pr-col">
-          <div class="pr-sub"><b>${esc(LABEL_L2)}${sel ? ' — ' + esc(sel.Title) : ''}</b>
+          <div class="pr-sub"><b>${esc(LABEL_L2)}${sel ? ' — ' + esc(sel.Title) : ''}</b>${
+diff && diff.l2Reorder ? '<span class="pr-stale">並び替え</span>' : ''}
             <span class="pr-count">${sel ? l2of(sel.Id).length + '件' : ''}</span></div>
           ${sel ? `
           <div class="pr-toolbar">
@@ -3791,16 +3933,16 @@ okLabel: '反映する',
 if (!ok) return;
 run('リストへ反映', async () => {
 const s = await syncMastersToUserList(state, setStatus);
-await saveSyncFp('master', computeMasterFp(state));
+await saveSyncFp('master', computeMasterSnap(state));
 if (permsConfigured) {
 const ps = await applyPermissionsAll(state, setStatus);
 if (ps.errors.length) {
 toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
 } else {
-await saveSyncFp('perms', computePermsFp(state, admins));
+await saveSyncFp('perms', computePermsSnap(state, admins));
 }
 } else {
-await saveSyncFp('perms', computePermsFp(state, admins));
+await saveSyncFp('perms', computePermsSnap(state, admins));
 }
 await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
@@ -3812,6 +3954,29 @@ if (s.org2Migrated) toast('warn', s.org2Migrated);
 if (s.org2Mode) state.org2Mode = s.org2Mode;
 if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
 if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
+});
+return;
+}
+if (act === 'discard-pending') {
+if (!state.syncFp || !state.syncDiff || !state.syncDiff.canDiscard) return;
+const d = state.syncDiff;
+const ok = await modal({
+title: '未反映の変更を破棄',
+message: 'マスタと権限グループ割当を、前回「リストへ反映」した時点の状態に戻します: ' +
+(d.summary.join(' / ') || '') + '。' +
+(d.removed.length ? ' ※削除済みのマスタ行(' + d.removed.join('、') + ')は復元できません。' : '') +
+'この操作は元に戻せません。',
+okLabel: '破棄して戻す',
+danger: true,
+});
+if (!ok) return;
+run('変更の破棄', async () => {
+const r = await revertSyncState(state, state.syncFp, setStatus);
+await reload();
+toast('ok', '未反映の変更を破棄しました(書き戻し ' + r.reverted + '件 / 追加分の削除 ' + r.deleted + '件)');
+if (r.missing.length) {
+toast('warn', '復元できなかった削除済みマスタ: ' + r.missing.join('、'));
+}
 });
 return;
 }
@@ -3923,7 +4088,7 @@ await reload();
 if (state.usersReady) {
 setStatus('並び順をリストへ反映中…');
 await syncMastersToUserList(state, setStatus);
-await saveSyncFp('master', computeMasterFp(state));
+await saveSyncFp('master', computeMasterSnap(state));
 await reload();
 }
 });

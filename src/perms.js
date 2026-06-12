@@ -93,24 +93,7 @@ const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).lengt
 
 const CONF_KEY_SYNC_FP = 'syncFingerprint';
 
-function computeMasterFp(state) {
-  const activeL1 = state.l1.filter((x) => x.Active !== false);
-  const ids = new Set(activeL1.map((x) => x.Id));
-  const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && ids.has(x.Level1.Id));
-  return JSON.stringify({
-    l1: activeL1.map((x) => x.Title),
-    l2: activeL2.map((x) => [x.Level1.Id, x.Title]),
-  });
-}
-
-function computePermsFp(state, adminIds) {
-  return JSON.stringify({
-    g: state.l1.filter((x) => x.Active !== false).map((x) => [x.Title, permGroupIdsOf(x)]),
-    a: (adminIds || []).slice().sort((a, b) => a - b),
-  });
-}
-
-// 共有設定からまとめて読む: 管理者グループ + 反映済みフィンガープリント
+// 共有設定からまとめて読む: 管理者グループ + 反映済みスナップショット
 async function loadSyncState() {
   try {
     if (!(await listId(LIST_CONF))) return { adminIds: [], fp: null };

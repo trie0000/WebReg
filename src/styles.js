@@ -306,10 +306,19 @@ const css = `
   font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
 }
 #${ROOT_ID} .pr-pending{
+  display:flex; align-items:center; gap:var(--s-5);
   margin:0 var(--gutter); margin-top:var(--s-5); padding:var(--s-4) var(--s-6);
   border:1px solid rgba(196,127,28,.4); border-radius:var(--r-2);
   background:rgba(196,127,28,.10); color:var(--warn); font-size:var(--fs-md);
 }
+#${ROOT_ID} .pr-pending span{ flex:1; min-width:0; }
+/* 未反映の種類バッジ(マスタ行・列見出し) */
+#${ROOT_ID} .pr-stale{
+  display:inline-block; margin-left:var(--s-2); padding:0 var(--s-3);
+  border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap;
+  background:rgba(196,127,28,.14); color:var(--warn);
+}
+#${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
 
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
