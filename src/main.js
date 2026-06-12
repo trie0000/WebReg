@@ -637,7 +637,7 @@
     if (state.view === 'users') {
       usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
     } else if (state.view === 'reqs') {
-      reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+      reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
     }
   }
 
@@ -645,6 +645,17 @@
   function reqPendingCount() {
     if (!state.usersReady) return 0;
     return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
+  }
+
+  // 改廃ステータスのインライン変更(1行。結果確認済みなら変更区分も空欄に)
+  function userStatusChange(id, status) {
+    const clearCt = status === WORK_STATUS_DONE;
+    const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
+    run('ステータス更新', async () => {
+      await ensureWorkStatusColumn();
+      await updateItem(LIST_USERS, id, body);
+      await reload();
+    });
   }
 
   // 改廃ステータスの一括変更(選択行へ。列が未作成の既存リストでも動くよう先に確保)

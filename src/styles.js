@@ -329,6 +329,13 @@ const css = `
 #${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
 #${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
 #${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
+/* 改廃ステータスのチップ風インラインselect(その場で直接変更) */
+#${ROOT_ID} .pr-chipsel{
+  height:26px !important; padding:0 var(--s-4) !important;
+  border-radius:999px !important; border:1px solid transparent !important;
+  font-size:var(--fs-sm) !important; font-weight:600 !important; cursor:pointer;
+  max-width:140px;
+}
 
 /* ---- 実機差分チェックの区分バッジ ---- */
 #${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }

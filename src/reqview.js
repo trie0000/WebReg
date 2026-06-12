@@ -81,16 +81,18 @@ function reqViewHtml(state) {
       esc(reqColLabel(c)) + arrow + '</th>';
   }).join('');
 
-  // ステータスは色分けチップで表示(編集は選択して一括変更)
-  const statusChip = (u) => {
+  // ステータスは色分けチップ風のインラインselect(その場で直接変更できる)
+  const statusCell = (u) => {
     const cur = reqStatusOf(u);
-    return '<span class="pr-chip ' + reqStatusClass(cur) + '">' + esc(cur) + '</span>';
+    return '<select class="pr-chipsel ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
+      WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
+      '</select>';
   };
   const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
     '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
       (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
     cols.map((c) => c.key === 'status'
-      ? '<td>' + statusChip(u) + '</td>'
+      ? '<td>' + statusCell(u) + '</td>'
       : '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
     '</tr>';
 
@@ -125,7 +127,7 @@ function reqViewHtml(state) {
     </div>`;
 }
 
-// ctx: { rerender, onEdit(item) }
+// ctx: { rerender, onEdit(item), onStatusChange(id, status) }
 function reqAfterRender(app, state, ctx) {
   const table = app.querySelector('.pr-utable[data-grid="reqs"]');
   if (!table) return;
@@ -168,8 +170,15 @@ function reqAfterRender(app, state, ctx) {
     ctx.rerender();
   });
 
+  // ステータスのインライン変更(その場で直接更新)
+  table.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-reqstatus]');
+    if (sel) ctx.onStatusChange(+sel.dataset.reqstatus, sel.value);
+  });
+
   // 選択(チェックボックス)と行クリック(編集)を分離する
   table.addEventListener('click', (e) => {
+    if (e.target.closest('[data-reqstatus]')) return; // ステータス操作は編集/選択を起こさない
     const chkAll = e.target.closest('[data-rsel-all]');
     if (chkAll) {
       e.stopPropagation();

@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-4f452bb6" !== 'undefined' ? "0.1.0-4f452bb6" : 'dev';
+const BUILD = typeof "0.1.0-ff228c33" !== 'undefined' ? "0.1.0-ff228c33" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1319,6 +1319,13 @@ const css = `
 #${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
 #${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
 #${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
+/* 改廃ステータスのチップ風インラインselect(その場で直接変更) */
+#${ROOT_ID} .pr-chipsel{
+  height:26px !important; padding:0 var(--s-4) !important;
+  border-radius:999px !important; border:1px solid transparent !important;
+  font-size:var(--fs-sm) !important; font-weight:600 !important; cursor:pointer;
+  max-width:140px;
+}
 /* ---- 実機差分チェックの区分バッジ ---- */
 #${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }
 #${ROOT_ID} .pr-cmp--diff{ background:rgba(196,127,28,.14); color:var(--warn); }
@@ -2253,15 +2260,17 @@ const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
 return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
 esc(reqColLabel(c)) + arrow + '</th>';
 }).join('');
-const statusChip = (u) => {
+const statusCell = (u) => {
 const cur = reqStatusOf(u);
-return '<span class="pr-chip ' + reqStatusClass(cur) + '">' + esc(cur) + '</span>';
+return '<select class="pr-chipsel ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
+WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
+'</select>';
 };
 const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
 '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
 (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
 cols.map((c) => c.key === 'status'
-? '<td>' + statusChip(u) + '</td>'
+? '<td>' + statusCell(u) + '</td>'
 : '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
 '</tr>';
 return `
@@ -2333,7 +2342,12 @@ app.querySelector('#pr-rfilter-verified').addEventListener('change', (e) => {
 reqFilter.hideVerified = e.target.checked;
 ctx.rerender();
 });
+table.addEventListener('change', (e) => {
+const sel = e.target.closest('[data-reqstatus]');
+if (sel) ctx.onStatusChange(+sel.dataset.reqstatus, sel.value);
+});
 table.addEventListener('click', (e) => {
+if (e.target.closest('[data-reqstatus]')) return;
 const chkAll = e.target.closest('[data-rsel-all]');
 if (chkAll) {
 e.stopPropagation();
@@ -2846,7 +2860,7 @@ const body = {
 Title: t.name,
 Company: t.company,
 Email: t.email,
-ChangeType: '変更なし',
+ChangeType: '',
 Permission: t.permission,
 OrgLevel1: t.org1,
 Notes: notes.join('\n'),
@@ -4280,12 +4294,21 @@ app.innerHTML = `
 if (state.view === 'users') {
 usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
 } else if (state.view === 'reqs') {
-reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
+reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
 }
 }
 function reqPendingCount() {
 if (!state.usersReady) return 0;
 return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
+}
+function userStatusChange(id, status) {
+const clearCt = status === WORK_STATUS_DONE;
+const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
+run('ステータス更新', async () => {
+await ensureWorkStatusColumn();
+await updateItem(LIST_USERS, id, body);
+await reload();
+});
 }
 async function reqBulkStatusFlow() {
 const ids = [...selectedReqIds];
