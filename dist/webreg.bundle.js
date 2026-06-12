@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-637af380" !== 'undefined' ? "0.1.0-637af380" : 'dev';
+const BUILD = typeof "0.1.0-eba0f8fd" !== 'undefined' ? "0.1.0-eba0f8fd" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1844,7 +1844,6 @@ return `
 const ids = new Set(state.users.map((u) => u.Id));
 for (const id of [...selectedUserIds]) if (!ids.has(id)) selectedUserIds.delete(id);
 const list = visibleUsers(state);
-const readAt = notifyReadAt();
 const sel = selectedUserIds.size;
 const sort = gridSort(USERS_GRID_KEY, 'modified');
 const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
@@ -1852,14 +1851,7 @@ const cols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean
 const selOpts = (opts, cur) => '<option value="">すべて</option>' +
 opts.map((o) => '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
 const org1Opts = state.l1.filter((x) => x.Active !== false).map((x) => x.Title);
-const badgeHtml = (u) => {
-const parts = [];
-const b = userBadge(u, readAt);
-if (b === 'new') parts.push('<span class="pr-badge pr-badge--new">NEW</span>');
-if (b === 'upd') parts.push('<span class="pr-badge pr-badge--upd">更新</span>');
-if (u.SystemDeleted === true) parts.push('<span class="pr-badge pr-badge--del">削除済</span>');
-return parts.join('');
-};
+const badgeHtml = (u) => (u.SystemDeleted === true ? '<span class="pr-badge pr-badge--del">削除済</span>' : '');
 const thHtml = cols.map((c) => {
 const active = sort.by === c.key;
 const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
@@ -1992,6 +1984,13 @@ const fieldRow = (label, inner) => `
       <div class="pr-field"><label>${label}</label>${inner}</div>`;
 const selOpts = (opts, cur) => opts.map((c) =>
 '<option' + (c === cur ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+const ctOpts = (opts, cur, edit) => {
+let h = '<option value=""' + (edit && !cur ? ' selected' : '') + '>（空欄）</option>';
+opts.forEach((c, i) => {
+h += '<option' + ((cur === c) || (!edit && i === 0) ? ' selected' : '') + '>' + esc(c) + '</option>';
+});
+return h;
+};
 const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="${isEdit ? '利用者の編集' : '利用者の新規登録'}">
@@ -1999,7 +1998,7 @@ const back = el(`
           ${fieldRow('利用者名 <span class="pr-req">*</span>', '<input type="text" class="pr-input" id="uf-name">')}
           ${fieldRow('会社名', '<input type="text" class="pr-input" id="uf-company">')}
           ${fieldRow('メールアドレス', '<input type="text" class="pr-input" id="uf-email">')}
-          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${selOpts(state.choices.changeType, existing && existing.ChangeType)}</select>`)}
+          ${fieldRow('変更区分', `<select class="pr-input" id="uf-changetype">${ctOpts(state.choices.changeType, existing && existing.ChangeType, isEdit)}</select>`)}
           ${fieldRow('権限', `<select class="pr-input" id="uf-perm">${selOpts(state.choices.permission, existing && existing.Permission)}</select>`)}
           ${fieldRow(esc(LABEL_L1), `<select class="pr-input" id="uf-l1">${
 activeL1.map((x) => '<option' + (existing && existing.OrgLevel1 === x.Title ? ' selected' : '') + '>' + esc(x.Title) + '</option>').join('')}</select>`)}
@@ -2123,14 +2122,18 @@ back.querySelector('#uf-name').focus();
 function openBulkModal(state, count) {
 return new Promise((resolve) => {
 const KEEP = '（変更しない）';
+const BLANK = '（空欄にする）';
 const sel = (id, opts) => `<select class="pr-input" id="${id}">` +
 ['<option>' + KEEP + '</option>'].concat(opts.map((o) => '<option>' + esc(o) + '</option>')).join('') +
 '</select>';
+const selCt = `<select class="pr-input" id="bk-ct">` +
+['<option>' + KEEP + '</option>', '<option>' + BLANK + '</option>']
+.concat(state.choices.changeType.map((o) => '<option>' + esc(o) + '</option>')).join('') + '</select>';
 const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal" role="dialog" aria-modal="true" aria-label="一括変更">
           <h4>一括変更 — 選択中 ${count}件</h4>
-          <div class="pr-field"><label>変更区分</label>${sel('bk-ct', state.choices.changeType)}</div>
+          <div class="pr-field"><label>変更区分</label>${selCt}</div>
           <div class="pr-field"><label>権限</label>${sel('bk-pm', state.choices.permission)}</div>
           <div class="pr-field"><label>システム削除(論理削除)</label>${sel('bk-del', ['削除する', '解除する'])}</div>
           <div class="pr-modal-actions">
@@ -2150,7 +2153,8 @@ const KEEPV = KEEP;
 const ct = back.querySelector('#bk-ct').value;
 const pm = back.querySelector('#bk-pm').value;
 const dl = back.querySelector('#bk-del').value;
-if (ct !== KEEPV) changes.ChangeType = ct;
+if (ct === BLANK) changes.ChangeType = '';
+else if (ct !== KEEPV) changes.ChangeType = ct;
 if (pm !== KEEPV) changes.Permission = pm;
 if (dl !== KEEPV) changes.SystemDeleted = dl === '削除する';
 if (!Object.keys(changes).length) {
