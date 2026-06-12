@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-6fc1a703" !== 'undefined' ? "0.1.0-6fc1a703" : 'dev';
+const BUILD = typeof "0.1.0-fc0068ec" !== 'undefined' ? "0.1.0-fc0068ec" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -480,6 +480,12 @@ summary.formulaWarn = LABEL_L2 + 'の表示値更新: ' + e.message;
 }
 }
 await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+log('SPリストの表示設定を更新中…');
+try {
+await applyListFormatting(state);
+} catch (e) {
+summary.formatWarn = e.message;
+}
 const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
 try {
 log('列の並び順を更新中…');
@@ -489,6 +495,54 @@ summary.orderWarn = e.message;
 }
 log('反映完了');
 return summary;
+}
+function chipFormatterJson(colorMap, deflt) {
+const entries = Object.entries(colorMap);
+let bg = "'" + deflt + "'";
+for (let i = entries.length - 1; i >= 0; i--) {
+bg = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + bg + ")";
+}
+return JSON.stringify({
+$schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
+elmType: 'div',
+txtContent: '@currentField',
+style: {
+display: "=if(@currentField == '', 'none', 'inline-block')",
+padding: '1px 12px',
+'border-radius': '16px',
+'font-size': '12px',
+'font-weight': '600',
+color: '#323130',
+'background-color': '=' + bg,
+},
+});
+}
+async function applyListFormatting(state) {
+const ctFmt = chipFormatterJson({
+追加: '#dff6dd', 新規: '#dff6dd',
+更新: '#cfe4fa', 変更: '#cfe4fa',
+削除: '#fde7e9',
+変更なし: '#f3f2f1',
+}, '#f3f2f1');
+const pmFmt = chipFormatterJson({ 更新者: '#cce6ff', 閲覧者: '#eef0f2' }, '#eef0f2');
+const setFmt = async (internal, json) => {
+try {
+await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+{ CustomFormatter: json });
+} catch { }
+};
+await setFmt('ChangeType', ctFmt);
+await setFmt('Permission', pmFmt);
+const calcCols = ['OrgLevel2'];
+try {
+const subs = await spGet(lt(LIST_USERS) +
+"/fields?$select=InternalName&$filter=startswith(InternalName,'O2S_')");
+for (const f of (subs.value || [])) calcCols.push(f.InternalName);
+} catch { }
+for (const c of calcCols) {
+try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { }
+try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { }
+}
 }
 async function applyColumnOrder(orderedManaged) {
 let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];

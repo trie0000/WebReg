@@ -296,6 +296,15 @@ async function syncMastersToUserList(state, log) {
 
   await addViewFields(LIST_USERS, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
 
+  // SP標準フォームの設定: 読み取り専用の集計列(OrgLevel2 と中間列 O2S_*)は
+  // 新規追加/編集フォームに出さない。変更区分/権限は色付きチップで表示する
+  log('SPリストの表示設定を更新中…');
+  try {
+    await applyListFormatting(state);
+  } catch (e) {
+    summary.formatWarn = e.message;
+  }
+
   // 列の並び順をマスタに合わせる(既定ビュー + SP標準フォーム)。失敗しても反映自体は成立
   const orderedManaged = ['OrgLevel1', 'L2All', 'OrgLevel2'].concat(activeL2.map((x) => 'L2_' + x.Id));
   try {
@@ -306,6 +315,63 @@ async function syncMastersToUserList(state, log) {
   }
   log('反映完了');
   return summary;
+}
+
+// 選択肢→色のチップ列フォーマット(SPのモダン列書式 JSON)を生成する。
+// 既知の値だけ色を付け、空欄はチップを出さない(display:none)
+function chipFormatterJson(colorMap, deflt) {
+  const entries = Object.entries(colorMap);
+  let bg = "'" + deflt + "'";
+  for (let i = entries.length - 1; i >= 0; i--) {
+    bg = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + bg + ")";
+  }
+  return JSON.stringify({
+    $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
+    elmType: 'div',
+    txtContent: '@currentField',
+    style: {
+      display: "=if(@currentField == '', 'none', 'inline-block')",
+      padding: '1px 12px',
+      'border-radius': '16px',
+      'font-size': '12px',
+      'font-weight': '600',
+      color: '#323130',
+      'background-color': '=' + bg,
+    },
+  });
+}
+
+// 変更区分/権限を色付きチップで表示し、読み取り専用の集計列をフォームから隠す
+async function applyListFormatting(state) {
+  // 変更区分: 追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰
+  const ctFmt = chipFormatterJson({
+    追加: '#dff6dd', 新規: '#dff6dd',
+    更新: '#cfe4fa', 変更: '#cfe4fa',
+    削除: '#fde7e9',
+    変更なし: '#f3f2f1',
+  }, '#f3f2f1');
+  // 権限: 更新者=青 / 閲覧者=灰
+  const pmFmt = chipFormatterJson({ 更新者: '#cce6ff', 閲覧者: '#eef0f2' }, '#eef0f2');
+  const setFmt = async (internal, json) => {
+    try {
+      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+        { CustomFormatter: json });
+    } catch { /* 書式設定は失敗しても反映は継続 */ }
+  };
+  await setFmt('ChangeType', ctFmt);
+  await setFmt('Permission', pmFmt);
+
+  // 読み取り専用の集計列(統合列 OrgLevel2 + 中間列 O2S_*)を新規/編集フォームから隠す
+  const calcCols = ['OrgLevel2'];
+  try {
+    const subs = await spGet(lt(LIST_USERS) +
+      "/fields?$select=InternalName&$filter=startswith(InternalName,'O2S_')");
+    for (const f of (subs.value || [])) calcCols.push(f.InternalName);
+  } catch { /* ignore */ }
+  for (const c of calcCols) {
+    try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { /* ignore */ }
+    try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { /* ignore */ }
+  }
 }
 
 // 既定ビューの列順と、SP標準フォーム(コンテンツタイプ FieldLinks)の列順を
