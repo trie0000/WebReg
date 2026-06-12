@@ -205,6 +205,7 @@ function openReqStatusModal(count) {
           <div class="pr-field"><label>変更後のステータス</label>
             <select class="pr-input" id="rq-status">${
               WORK_STATUS.map((s) => '<option>' + esc(s) + '</option>').join('')}</select></div>
+          <span class="pr-note">「${esc(WORK_STATUS_DONE)}」にすると変更区分を空欄にし、改廃依頼一覧から外します。</span>
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
             <button class="pr-btn pr-btn--primary" data-mact="ok">適用する</button>

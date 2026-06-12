@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-b7599e4e" !== 'undefined' ? "0.1.0-b7599e4e" : 'dev';
+const BUILD = typeof "0.1.0-6fc1a703" !== 'undefined' ? "0.1.0-6fc1a703" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -2296,6 +2296,7 @@ const back = el(`
           <div class="pr-field"><label>変更後のステータス</label>
             <select class="pr-input" id="rq-status">${
 WORK_STATUS.map((s) => '<option>' + esc(s) + '</option>').join('')}</select></div>
+          <span class="pr-note">「${esc(WORK_STATUS_DONE)}」にすると変更区分を空欄にし、改廃依頼一覧から外します。</span>
           <div class="pr-modal-actions">
             <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
             <button class="pr-btn pr-btn--primary" data-mact="ok">適用する</button>
@@ -4220,11 +4221,15 @@ const ids = [...selectedReqIds];
 if (!ids.length) return;
 const status = await openReqStatusModal(ids.length);
 if (!status) return;
+const clearCt = status === WORK_STATUS_DONE;
+const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
 run('ステータス一括変更', async () => {
 await ensureWorkStatusColumn();
-for (const id of ids) await updateItem(LIST_USERS, id, { WorkStatus: status });
+for (const id of ids) await updateItem(LIST_USERS, id, body);
+selectedReqIds.clear();
 await reload();
-toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました');
+toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました' +
+(clearCt ? '(変更区分を空欄にして改廃依頼から除外)' : ''));
 });
 }
 async function reload() {

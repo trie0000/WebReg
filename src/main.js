@@ -653,11 +653,17 @@
     if (!ids.length) return;
     const status = await openReqStatusModal(ids.length);
     if (!status) return;
+    // 「結果確認済み」になったら改廃完了とみなし、変更区分を空欄に戻す
+    //  (=改廃依頼一覧の対象から外れる)
+    const clearCt = status === WORK_STATUS_DONE;
+    const body = clearCt ? { WorkStatus: status, ChangeType: '' } : { WorkStatus: status };
     run('ステータス一括変更', async () => {
       await ensureWorkStatusColumn();
-      for (const id of ids) await updateItem(LIST_USERS, id, { WorkStatus: status });
+      for (const id of ids) await updateItem(LIST_USERS, id, body);
+      selectedReqIds.clear();
       await reload();
-      toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました');
+      toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました' +
+        (clearCt ? '(変更区分を空欄にして改廃依頼から除外)' : ''));
     });
   }
 
