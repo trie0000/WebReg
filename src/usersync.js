@@ -3,7 +3,7 @@
 // 列形式(ユーザー指定):
 //   組織区分第1階層 = 選択肢(Choice)列 OrgLevel1。選択肢 = 有効な第1階層マスタ
 //   第2階層        = 有効なマスタ1件につき はい/いいえ列(内部名 L2_<マスタID> — 改名しても安定)
-//   組織区分第2階層 = 集計(Calculated)列 OrgLevel2。「☑欧州/☐北米/…」形式で表示
+//   組織区分第2階層 = 集計(Calculated)列 OrgLevel2。「✅欧州/☐北米/…」形式で表示
 //
 // 方針: 冪等。マスタの無効化/削除では列を削除しない(既存行のデータ保全)。
 //       無効分は選択肢・集計式から除外されるだけ。マスタ改名は列の表示名に追従する。
@@ -158,10 +158,10 @@ async function syncMastersToUserList(state, log) {
     summary.condWarn = '条件付き表示(L2All): ' + e.message;
   }
 
-  // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ☑/☐ で連結する式に更新
+  // 集計列: 組織区分1の値で分岐し、その配下の組織区分2だけを ✅/☐ で連結する式に更新
   // (行ごとに自分の組織区分1に紐づく組織だけが表示される。並び替えもここで追従)
   // 集計は2段構成にする(ユーザー提案の方式):
-  //   1) 組織区分1ごとの中間集計列 O2S_<L1のID>(その配下の組織区分2だけの☑/☐連結)
+  //   1) 組織区分1ごとの中間集計列 O2S_<L1のID>(その配下の組織区分2だけの✅/☐連結)
   //   2) 統合列 OrgLevel2 は「組織区分1の値に応じて該当の中間列を参照する」だけ
   // 1本の式が巨大化しないため、SP の式長上限(約8千文字)に組織数が増えても当たらない。
   // それでも収まらない場合(1つの組織区分1に大量の組織区分2がある等)はテキスト列へ移行
@@ -181,9 +181,9 @@ async function syncMastersToUserList(state, log) {
   for (const l1 of activeL1) {
     const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
     if (!kids.length) continue;
-    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&' + lit(displayOf(x)))
+    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"✅","☐")&' + lit(displayOf(x)))
       .join('&" / "&');
-    const allChecked = lit(kids.map((x) => '☑' + displayOf(x)).join(' / '));
+    const allChecked = lit(kids.map((x) => '✅' + displayOf(x)).join(' / '));
     subDefs.push({
       internal: 'O2S_' + l1.Id,
       l1,

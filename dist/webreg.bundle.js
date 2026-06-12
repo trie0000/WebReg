@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-eba0f8fd" !== 'undefined' ? "0.1.0-eba0f8fd" : 'dev';
+const BUILD = typeof "0.1.0-117470a2" !== 'undefined' ? "0.1.0-117470a2" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -378,9 +378,9 @@ const subDefs = [];
 for (const l1 of activeL1) {
 const kids = activeL2.filter((x) => x.Level1.Id === l1.Id);
 if (!kids.length) continue;
-const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"☑","☐")&' + lit(displayOf(x)))
+const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"✅","☐")&' + lit(displayOf(x)))
 .join('&" / "&');
-const allChecked = lit(kids.map((x) => '☑' + displayOf(x)).join(' / '));
+const allChecked = lit(kids.map((x) => '✅' + displayOf(x)).join(' / '));
 subDefs.push({
 internal: 'O2S_' + l1.Id,
 l1,
@@ -1692,77 +1692,6 @@ opts.onReorder(null, null);
 });
 });
 }
-function notifyReadAt() {
-return +(localStorage.getItem(LS_NOTIFY_READAT) || 0);
-}
-function notifyMarkRead() {
-localStorage.setItem(LS_NOTIFY_READAT, String(Date.now()));
-}
-function notifyEvents() {
-try {
-const v = JSON.parse(localStorage.getItem(LS_NOTIFY_EVENTS) || '[]');
-return Array.isArray(v) ? v : [];
-} catch {
-return [];
-}
-}
-function notifyAdd(events) {
-if (!events.length) return;
-localStorage.setItem(LS_NOTIFY_EVENTS, JSON.stringify(events.concat(notifyEvents()).slice(0, 50)));
-}
-function notifyUnreadCount() {
-const r = notifyReadAt();
-return notifyEvents().filter((e) => e.ts > r).length;
-}
-function userBadge(u, readAt) {
-const created = Date.parse(u.Created || '') || 0;
-const modified = Date.parse(u.Modified || '') || 0;
-if (created > readAt) return 'new';
-if (modified > readAt) return 'upd';
-return null;
-}
-function diffUsers(prev, next) {
-const ts = Date.now();
-const prevMap = new Map(prev.map((x) => [x.Id, x]));
-const nextIds = new Set(next.map((x) => x.Id));
-const events = [];
-for (const n of next) {
-const p = prevMap.get(n.Id);
-if (!p) events.push({ ts, kind: 'new', title: n.Title || ('#' + n.Id) });
-else if (p.Modified !== n.Modified) events.push({ ts, kind: 'upd', title: n.Title || ('#' + n.Id) });
-}
-for (const p of prev) {
-if (!nextIds.has(p.Id)) events.push({ ts, kind: 'del', title: p.Title || ('#' + p.Id) });
-}
-return events;
-}
-function notifyViewHtml() {
-const events = notifyEvents();
-const readAt = notifyReadAt();
-const kindChip = (k) => k === 'new'
-? '<span class="pr-badge pr-badge--new">NEW</span>'
-: k === 'upd'
-? '<span class="pr-badge pr-badge--upd">更新</span>'
-: '<span class="pr-badge pr-badge--del">削除</span>';
-const kindText = { new: 'が追加されました', upd: 'が更新されました', del: 'が削除されました' };
-const fmt = (ts) => {
-const d = new Date(ts);
-const pad = (n) => String(n).padStart(2, '0');
-return d.getMonth() + 1 + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-};
-const rows = events.map((e) => `
-    <div class="pr-notif${e.ts > readAt ? ' unread' : ''}">
-      <span class="pr-notif-time">${fmt(e.ts)}</span>
-      ${kindChip(e.kind)}
-      <span class="pr-notif-msg">「${esc(e.title)}」${kindText[e.kind] || ''}</span>
-    </div>`).join('');
-return `
-    <div class="pr-sub"><b>通知</b><span class="pr-count">${events.length}件 / 未読 ${notifyUnreadCount()}件</span>
-      <span style="flex:1"></span>
-      <button class="pr-btn pr-btn--ghost pr-btn--sm" data-act="notify-read">すべて既読にする</button>
-    </div>
-    <div class="pr-rows">${rows || '<div class="pr-empty">通知はありません。「' + esc(LIST_USERS) + '」の追加・更新・削除を検知するとここに表示されます。</div>'}</div>`;
-}
 function activeL2Of(state, l1Title) {
 const l1 = state.l1.find((x) => x.Title === l1Title && x.Active !== false);
 if (!l1) return [];
@@ -1785,7 +1714,7 @@ const USER_COLS = [
 ];
 function userOrg2Text(state, item) {
 return activeL2Of(state, item.OrgLevel1 || '')
-.map((m) => (item.L2All === true || item['L2_' + m.Id] === true ? '☑' : '☐') + m.Title)
+.map((m) => (item.L2All === true || item['L2_' + m.Id] === true ? '✅' : '☐') + m.Title)
 .join(' / ');
 }
 function userColLabel(c) {
@@ -4145,7 +4074,7 @@ diff.removed.length ? ' — 削除: ' + esc(diff.removed.slice(0, 3).join('、')
         ${diff.canDiscard ? `<button class="pr-btn pr-btn--sm pr-btn--danger" data-act="discard-pending">変更を破棄して戻す</button>` : ''}
       </div>` : ''}
       <div class="pr-syncbar">
-        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)。
+        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・✅集計表示に反映します(無効はスキップ。列の削除はしません)。
           権限グループ割当があれば各行のアクセス権も適用します</span>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
       </div>
@@ -4182,7 +4111,7 @@ return usersViewHtml(state);
 }
 function render() {
 const views = {
-users: usersView, master: masterView, notify: notifyViewHtml,
+users: usersView, master: masterView,
 reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
 };
 const navItem = (view, label, sub) => `
@@ -4204,7 +4133,6 @@ app.innerHTML = `
           ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
           ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
-          ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
@@ -4285,7 +4213,6 @@ if (act === 'compare-import') { compareImportFlow(); return; }
 if (act === 'user-bulk') { userBulkFlow(); return; }
 if (act === 'user-del-selected') { userDeleteFlow(); return; }
 if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
-if (act === 'notify-read') { notifyMarkRead(); render(); return; }
 if (act === 'sync-users') {
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const activeL1Ids = new Set(activeL1.map((x) => x.Id));
@@ -4305,7 +4232,7 @@ const ok = await modal({
 title: 'リストへ反映',
 message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
 LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
-'件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
+'件をチェック列+✅集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
 (permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
 '(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
 LABEL_L1 + 'の行は管理者のみ)。' : ''),
@@ -4485,15 +4412,15 @@ compareCsvText: (t) => compareImportFlow(t),
 };
 startUpdateWatcher(BUILD);
 if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
+const usersFingerprint = (arr) =>
+arr.length + '|' + arr.map((u) => u.Id + ':' + (u.Modified || '')).sort().join(',');
 const pollUsers = async () => {
 if (document.hidden || state.busy || !state.usersReady) return;
 if (root.querySelector('.pr-backdrop')) return;
 try {
 const r = await spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999');
 const next = r.value || [];
-const events = diffUsers(state.users, next);
-if (!events.length) return;
-notifyAdd(events);
+if (usersFingerprint(state.users) === usersFingerprint(next)) return;
 state.users = next;
 const ae = document.activeElement;
 if (ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;

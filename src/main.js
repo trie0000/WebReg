@@ -14,7 +14,7 @@
 
   // ---------------------------------------------------------------- state
   const state = {
-    view: 'users',   // 'users' | 'master' | 'notify'(既定は利用者一覧)
+    view: 'users',   // 'users' | 'reqs' | 'compare' | 'master'(既定は利用者一覧)
     l1: [],          // [{Id, Title, SortOrder, Active}]
     l2: [],          // [{Id, Title, SortOrder, Active, Level1:{Id}}]
     selectedL1: null, // Id
@@ -567,7 +567,7 @@
         ${diff.canDiscard ? `<button class="pr-btn pr-btn--sm pr-btn--danger" data-act="discard-pending">変更を破棄して戻す</button>` : ''}
       </div>` : ''}
       <div class="pr-syncbar">
-        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)。
+        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・✅集計表示に反映します(無効はスキップ。列の削除はしません)。
           権限グループ割当があれば各行のアクセス権も適用します</span>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
       </div>
@@ -606,7 +606,7 @@
 
   function render() {
     const views = {
-      users: usersView, master: masterView, notify: notifyViewHtml,
+      users: usersView, master: masterView,
       reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
     };
     const navItem = (view, label, sub) => `
@@ -629,7 +629,6 @@
           ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
           ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
-          ${navItem('notify', '通知' + (notifyUnreadCount() ? '<span class="pr-navbadge">' + notifyUnreadCount() + '</span>' : ''), 'リスト更新の検知')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>
@@ -723,7 +722,6 @@
     if (act === 'user-bulk') { userBulkFlow(); return; }
     if (act === 'user-del-selected') { userDeleteFlow(); return; }
     if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
-    if (act === 'notify-read') { notifyMarkRead(); render(); return; }
 
     if (act === 'sync-users') {
       const activeL1 = state.l1.filter((x) => x.Active !== false);
@@ -744,7 +742,7 @@
         title: 'リストへ反映',
         message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
           LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
-          '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
+          '件をチェック列+✅集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
           (permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
             '(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
             LABEL_L1 + 'の行は管理者のみ)。' : ''),
@@ -937,17 +935,18 @@
   };
   startUpdateWatcher(BUILD); // 読込元の version.txt を監視し、新版があれば更新モーダル→自動更新
 
-  // 利用者一覧の定期ポーリング(他ユーザーの変更検知→通知)。新インスタンス起動時に旧タイマー停止
+  // 利用者一覧の定期ポーリング(他ユーザーの変更を検知して再描画)。新インスタンス起動時に旧タイマー停止
   if (window.__webregUsersPoll) clearInterval(window.__webregUsersPoll);
+  // 件数または各行の更新日時に変化があれば「変わった」とみなす
+  const usersFingerprint = (arr) =>
+    arr.length + '|' + arr.map((u) => u.Id + ':' + (u.Modified || '')).sort().join(',');
   const pollUsers = async () => {
     if (document.hidden || state.busy || !state.usersReady) return;
     if (root.querySelector('.pr-backdrop')) return; // モーダル操作中は触らない
     try {
       const r = await spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999');
       const next = r.value || [];
-      const events = diffUsers(state.users, next);
-      if (!events.length) return;
-      notifyAdd(events);
+      if (usersFingerprint(state.users) === usersFingerprint(next)) return;
       state.users = next;
       // 入力中(フォーカスが入力要素)なら再描画しない(次の操作/検知で反映)
       const ae = document.activeElement;
