@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-7ef93477" !== 'undefined' ? "0.1.0-7ef93477" : 'dev';
+const BUILD = typeof "0.1.0-c3e2a4a3" !== 'undefined' ? "0.1.0-c3e2a4a3" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1000,6 +1000,20 @@ const css = `
 #${ROOT_ID} .pr-checks--perm .pr-check{ display:flex; padding:2px 0; white-space:normal; }
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
+/* ---- Excel取込の差分明細 ---- */
+#${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
+#${ROOT_ID} .pr-diff-item{
+  padding:var(--s-3) 0; border-bottom:1px solid var(--line);
+  font-size:var(--fs-md); line-height:1.7;
+}
+#${ROOT_ID} .pr-diff-item:last-child{ border-bottom:none; }
+#${ROOT_ID} .pr-diff-tag{
+  display:inline-block; margin-left:var(--s-3); padding:0 var(--s-3);
+  border-radius:var(--r-2); font-size:var(--fs-xs);
+  background:var(--paper-3); color:var(--ink-3);
+}
+#${ROOT_ID} .pr-diff-tag--add{ background:var(--accent-soft); color:var(--accent-strong); }
+#${ROOT_ID} .pr-diff-tag--del{ background:rgba(184,83,74,.14); color:var(--danger); }
 /* ---- progress modal(処理中の進捗+残り時間) ---- */
 #${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }
 #${ROOT_ID} .pr-prog-msg{ font-size:var(--fs-md); color:var(--ink-3); min-height:1.5em; }
@@ -2895,34 +2909,61 @@ if (k.startsWith('L2_') && existing[k] === true && !(k in body)) body[k] = false
 }
 return body;
 }
-function xlsxRowChanged(state, e, u) {
-const body = buildXlsxBody(state, e, u);
-for (const [k, v] of Object.entries(body)) {
-const cur = (k.startsWith('L2_') || k === 'L2All') ? u[k] === true : (u[k] || '');
-const next = typeof v === 'boolean' ? v : (v || '');
-if (cur !== next) return true;
+function xlsxDiffLines(state, e, u) {
+const lines = [];
+const f = (label, before, after) => {
+if ((before || '') !== (after || '')) {
+lines.push(label + ': ' + (before || '(空)') + ' → ' + (after || '(空)'));
 }
-return false;
+};
+f('利用者名', u.Title, e.name);
+f('会社名', u.Company, e.company);
+f('メールアドレス', u.Email, e.email);
+f('権限', u.Permission, e.permission);
+f(LABEL_L1, u.OrgLevel1, e.l1);
+const beforeSet = new Set(activeL2Of(state, u.OrgLevel1 || '')
+.filter((m) => u.L2All === true || u['L2_' + m.Id] === true).map((m) => m.Title));
+const afterSet = new Set(e.org2names);
+if ((u.OrgLevel1 || '') !== e.l1) {
+lines.push(LABEL_L2 + ': ' + ([...afterSet].join('、') || '(なし)'));
+} else {
+const plus = [...afterSet].filter((x) => !beforeSet.has(x)).map((x) => '+' + x);
+const minus = [...beforeSet].filter((x) => !afterSet.has(x)).map((x) => '−' + x);
+if (plus.length || minus.length) lines.push(LABEL_L2 + ': ' + plus.concat(minus).join('、'));
 }
-function openXlsxConfirmModal(plan, changedCount) {
+return lines;
+}
+function openXlsxConfirmModal(state, plan, changed) {
 return new Promise((resolve) => {
-const names = (list, f) => list.slice(0, 5).map(f).map(esc).join('、') + (list.length > 5 ? ' ほか' : '');
 const missing = plan.missingL1.map((t) => esc(LABEL_L1) + ': ' + esc(t))
 .concat(plan.missingL2.map((m) => esc(LABEL_L2) + ': ' + esc(m.name) + '(' + esc(m.l1) + ')'));
+const addHtml = plan.adds.map((e) => `
+      <div class="pr-diff-item"><b>${esc(e.name)}</b><span class="pr-diff-tag pr-diff-tag--add">追加</span><br>
+        ${esc([e.company, e.email, e.permission, e.l1].filter(Boolean).join(' / '))}
+        ${e.org2names.length ? '<br>' + esc(LABEL_L2 + ': ' + e.org2names.join('、')) : ''}</div>`).join('');
+const updHtml = changed.map(({ e, u }) => `
+      <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag">更新</span><br>
+        ${xlsxDiffLines(state, e, u).map(esc).join('<br>')}</div>`).join('');
+const delHtml = plan.deletes.map(({ u }) => `
+      <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag pr-diff-tag--del">論理削除</span>
+        ${esc(u.OrgLevel1 || '')}</div>`).join('');
 const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
           <h4>Excelインポートの確認</h4>
-          <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changedCount}件</code>
-            (差分なし ${plan.updates.length - changedCount}件はスキップ) /
+          <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changed.length}件</code>
+            (差分なし ${plan.updates.length - changed.length}件はスキップ) /
             論理削除 <code>${plan.deletes.length}件</code>
             ${plan.skipped ? ' / 変更なし ' + plan.skipped + '件' : ''}</div>
-          ${plan.adds.length ? `<span class="pr-note">追加: ${names(plan.adds, (x) => x.name)}</span>` : ''}
-          ${plan.deletes.length ? `<span class="pr-note">論理削除(システム削除=ONになります):
-            ${names(plan.deletes, (x) => x.u.Title)}</span>` : ''}
+          <span class="pr-note">最新のリストを読み直した上での差分です。内容を確認してから取り込んでください。</span>
+          ${(addHtml || updHtml || delHtml) ? `
+          <div class="pr-field">
+            <label>取り込まれる変更(変更前 → 変更後)</label>
+            <div class="pr-checks pr-diff-list">${addHtml}${updHtml}${delHtml}</div>
+          </div>` : ''}
           ${plan.notFound.length ? `<span class="pr-note" style="color:var(--danger)">
             ⚠ 更新/削除の対象が見つからない列 ${plan.notFound.length}件(スキップされます):
-            ${names(plan.notFound, (x) => x.name)}</span>` : ''}
+            ${plan.notFound.slice(0, 5).map((x) => esc(x.name)).join('、')}${plan.notFound.length > 5 ? ' ほか' : ''}</span>` : ''}
           ${missing.length ? `
           <div class="pr-field">
             <label>マスタ未登録の組織(OK でマスタへ自動登録してから取り込みます)</label>
@@ -3310,19 +3351,23 @@ buf = await file.arrayBuffer();
 }
 let plan;
 try {
+setStatus('最新のリストを読み込み中…');
+await loadAll();
 plan = buildXlsxImportPlan(state, await xlsxParse(buf));
 } catch (e) {
 toast('err', 'Excelファイルの解析に失敗しました — ' + e.message);
 return;
+} finally {
+setStatus(state.ready ? '準備OK / ' + BUILD : 'マスタリスト未作成');
 }
-const changed = plan.updates.filter(({ e, u }) => xlsxRowChanged(state, e, u));
+const changed = plan.updates.filter(({ e, u }) => xlsxDiffLines(state, e, u).length > 0);
 if (!plan.adds.length && !changed.length && !plan.deletes.length) {
 toast(plan.notFound.length ? 'warn' : 'ok',
-'取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、差分がありません)' +
+'取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、最新のリストとの差分がありません)' +
 (plan.notFound.length ? ' / 突合できない列 ' + plan.notFound.length + '件' : ''));
 return;
 }
-const ok = await openXlsxConfirmModal(plan, changed.length);
+const ok = await openXlsxConfirmModal(state, plan, changed);
 if (!ok) return;
 run('Excelインポート', async () => {
 if (plan.missingL1.length || plan.missingL2.length) {

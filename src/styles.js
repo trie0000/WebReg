@@ -300,6 +300,21 @@ const css = `
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
 
+/* ---- Excel取込の差分明細 ---- */
+#${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
+#${ROOT_ID} .pr-diff-item{
+  padding:var(--s-3) 0; border-bottom:1px solid var(--line);
+  font-size:var(--fs-md); line-height:1.7;
+}
+#${ROOT_ID} .pr-diff-item:last-child{ border-bottom:none; }
+#${ROOT_ID} .pr-diff-tag{
+  display:inline-block; margin-left:var(--s-3); padding:0 var(--s-3);
+  border-radius:var(--r-2); font-size:var(--fs-xs);
+  background:var(--paper-3); color:var(--ink-3);
+}
+#${ROOT_ID} .pr-diff-tag--add{ background:var(--accent-soft); color:var(--accent-strong); }
+#${ROOT_ID} .pr-diff-tag--del{ background:rgba(184,83,74,.14); color:var(--danger); }
+
 /* ---- progress modal(処理中の進捗+残り時間) ---- */
 #${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }
 #${ROOT_ID} .pr-prog-msg{ font-size:var(--fs-md); color:var(--ink-3); min-height:1.5em; }

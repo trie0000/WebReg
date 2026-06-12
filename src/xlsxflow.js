@@ -316,37 +316,66 @@ function buildXlsxBody(state, e, existing) {
   return body;
 }
 
-// 既存行と取込列に差分があるときだけ更新する(Modified の無駄な更新を避ける)
-function xlsxRowChanged(state, e, u) {
-  const body = buildXlsxBody(state, e, u);
-  for (const [k, v] of Object.entries(body)) {
-    const cur = (k.startsWith('L2_') || k === 'L2All') ? u[k] === true : (u[k] || '');
-    const next = typeof v === 'boolean' ? v : (v || '');
-    if (cur !== next) return true;
+// 更新列の「変更前 → 変更後」明細(差分のあるフィールドのみ)。
+// 空配列なら見た目上の変更なし=取込スキップ対象
+function xlsxDiffLines(state, e, u) {
+  const lines = [];
+  const f = (label, before, after) => {
+    if ((before || '') !== (after || '')) {
+      lines.push(label + ': ' + (before || '(空)') + ' → ' + (after || '(空)'));
+    }
+  };
+  f('利用者名', u.Title, e.name);
+  f('会社名', u.Company, e.company);
+  f('メールアドレス', u.Email, e.email);
+  f('権限', u.Permission, e.permission);
+  f(LABEL_L1, u.OrgLevel1, e.l1);
+  // 組織区分2: 現在のチェック(すべて=ON なら全件)と比較して +追加 / −解除 を出す
+  const beforeSet = new Set(activeL2Of(state, u.OrgLevel1 || '')
+    .filter((m) => u.L2All === true || u['L2_' + m.Id] === true).map((m) => m.Title));
+  const afterSet = new Set(e.org2names);
+  if ((u.OrgLevel1 || '') !== e.l1) {
+    lines.push(LABEL_L2 + ': ' + ([...afterSet].join('、') || '(なし)'));
+  } else {
+    const plus = [...afterSet].filter((x) => !beforeSet.has(x)).map((x) => '+' + x);
+    const minus = [...beforeSet].filter((x) => !afterSet.has(x)).map((x) => '−' + x);
+    if (plus.length || minus.length) lines.push(LABEL_L2 + ': ' + plus.concat(minus).join('、'));
   }
-  return false;
+  return lines;
 }
 
-// 取込内容の確認モーダル
-function openXlsxConfirmModal(plan, changedCount) {
+// 取込内容の確認モーダル(変更前 → 変更後の明細つき。最新のリストを読み直した上で出すこと)
+function openXlsxConfirmModal(state, plan, changed) {
   return new Promise((resolve) => {
-    const names = (list, f) => list.slice(0, 5).map(f).map(esc).join('、') + (list.length > 5 ? ' ほか' : '');
     const missing = plan.missingL1.map((t) => esc(LABEL_L1) + ': ' + esc(t))
       .concat(plan.missingL2.map((m) => esc(LABEL_L2) + ': ' + esc(m.name) + '(' + esc(m.l1) + ')'));
+    const addHtml = plan.adds.map((e) => `
+      <div class="pr-diff-item"><b>${esc(e.name)}</b><span class="pr-diff-tag pr-diff-tag--add">追加</span><br>
+        ${esc([e.company, e.email, e.permission, e.l1].filter(Boolean).join(' / '))}
+        ${e.org2names.length ? '<br>' + esc(LABEL_L2 + ': ' + e.org2names.join('、')) : ''}</div>`).join('');
+    const updHtml = changed.map(({ e, u }) => `
+      <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag">更新</span><br>
+        ${xlsxDiffLines(state, e, u).map(esc).join('<br>')}</div>`).join('');
+    const delHtml = plan.deletes.map(({ u }) => `
+      <div class="pr-diff-item"><b>${esc(u.Title)}</b><span class="pr-diff-tag pr-diff-tag--del">論理削除</span>
+        ${esc(u.OrgLevel1 || '')}</div>`).join('');
     const back = el(`
       <div class="pr-backdrop">
         <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="Excelインポートの確認">
           <h4>Excelインポートの確認</h4>
-          <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changedCount}件</code>
-            (差分なし ${plan.updates.length - changedCount}件はスキップ) /
+          <div class="pr-kv">追加 <code>${plan.adds.length}件</code> / 更新 <code>${changed.length}件</code>
+            (差分なし ${plan.updates.length - changed.length}件はスキップ) /
             論理削除 <code>${plan.deletes.length}件</code>
             ${plan.skipped ? ' / 変更なし ' + plan.skipped + '件' : ''}</div>
-          ${plan.adds.length ? `<span class="pr-note">追加: ${names(plan.adds, (x) => x.name)}</span>` : ''}
-          ${plan.deletes.length ? `<span class="pr-note">論理削除(システム削除=ONになります):
-            ${names(plan.deletes, (x) => x.u.Title)}</span>` : ''}
+          <span class="pr-note">最新のリストを読み直した上での差分です。内容を確認してから取り込んでください。</span>
+          ${(addHtml || updHtml || delHtml) ? `
+          <div class="pr-field">
+            <label>取り込まれる変更(変更前 → 変更後)</label>
+            <div class="pr-checks pr-diff-list">${addHtml}${updHtml}${delHtml}</div>
+          </div>` : ''}
           ${plan.notFound.length ? `<span class="pr-note" style="color:var(--danger)">
             ⚠ 更新/削除の対象が見つからない列 ${plan.notFound.length}件(スキップされます):
-            ${names(plan.notFound, (x) => x.name)}</span>` : ''}
+            ${plan.notFound.slice(0, 5).map((x) => esc(x.name)).join('、')}${plan.notFound.length > 5 ? ' ほか' : ''}</span>` : ''}
           ${missing.length ? `
           <div class="pr-field">
             <label>マスタ未登録の組織(OK でマスタへ自動登録してから取り込みます)</label>

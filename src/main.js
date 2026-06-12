@@ -339,19 +339,25 @@
     }
     let plan;
     try {
+      // ファイル出力後に他の人が変えているかもしれないので、対象データはリストから読み直す
+      setStatus('最新のリストを読み込み中…');
+      await loadAll();
       plan = buildXlsxImportPlan(state, await xlsxParse(buf));
     } catch (e) {
       toast('err', 'Excelファイルの解析に失敗しました — ' + e.message);
       return;
+    } finally {
+      setStatus(state.ready ? '準備OK / ' + BUILD : 'マスタリスト未作成');
     }
-    const changed = plan.updates.filter(({ e, u }) => xlsxRowChanged(state, e, u));
+    // 「更新」のうち、最新のリストと比べて差分のある列だけが取込対象
+    const changed = plan.updates.filter(({ e, u }) => xlsxDiffLines(state, e, u).length > 0);
     if (!plan.adds.length && !changed.length && !plan.deletes.length) {
       toast(plan.notFound.length ? 'warn' : 'ok',
-        '取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、差分がありません)' +
+        '取り込む変更はありません(更新内容が「追加/更新/削除」の列が無いか、最新のリストとの差分がありません)' +
         (plan.notFound.length ? ' / 突合できない列 ' + plan.notFound.length + '件' : ''));
       return;
     }
-    const ok = await openXlsxConfirmModal(plan, changed.length);
+    const ok = await openXlsxConfirmModal(state, plan, changed);
     if (!ok) return;
     run('Excelインポート', async () => {
       // 1) 未登録マスタの自動登録 → 列・集計の反映(CSV取込と同じ流儀)
