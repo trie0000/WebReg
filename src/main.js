@@ -899,11 +899,19 @@
         } else {
           await saveSyncFp('perms', computePermsSnap(state, admins));
         }
+        // 海外/両方に振り分けた組織区分1があれば、英語版利用者リストも生成・反映する
+        let enMsg = '';
+        if (anyEnAssigned(state)) {
+          const en = await syncEnglishUserList(state, setStatus);
+          if (en.built) enMsg = ' / 英語リストに ' + en.users + '件を反映';
+          if (en.formulaWarn) toast('warn', '英語リストの集計式: ' + en.formulaWarn);
+          if (en.usersWarn) toast('warn', '英語リストの利用者反映: ' + en.usersWarn);
+        }
         await reload();
         toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
           LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
-          permMsg);
+          permMsg + enMsg);
         if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
         if (s.org2Migrated) toast('warn', s.org2Migrated);
         if (s.org2Mode) state.org2Mode = s.org2Mode;

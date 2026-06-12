@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-5d41a609" !== 'undefined' ? "0.1.0-5d41a609" : 'dev';
+const BUILD = typeof "0.1.0-7f959e48" !== 'undefined' ? "0.1.0-7f959e48" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -529,6 +529,153 @@ summary.orderWarn = e.message;
 log('反映完了');
 return summary;
 }
+const LIT_MAX = 120;
+function calcLit(s) {
+const chunks = [];
+for (let i = 0; i < s.length || i === 0; i += LIT_MAX) {
+chunks.push('"' + s.slice(i, i + LIT_MAX).replace(/"/g, '""') + '"');
+}
+return chunks.join('&');
+}
+async function syncEnglishUserList(state, log) {
+const summary = { built: false, users: 0 };
+const enL1 = state.l1.filter((x) => x.Active !== false && goesToEn(assignOf(state, x.Title)));
+if (!enL1.length) return summary;
+summary.built = true;
+const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
+const enL1Ids = new Set(enL1.map((x) => x.Id));
+const enL2 = state.l2
+.filter((x) => x.Active !== false && x.Level1 && enL1Ids.has(x.Level1.Id))
+.sort((a, b) => (l1Order.get(a.Level1.Id) - l1Order.get(b.Level1.Id)) ||
+((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
+const nameL1 = (x) => safeTitle(x.TitleEn || x.Title);
+const l1NameById = new Map(state.l1.map((x) => [x.Id, x.TitleEn || x.Title]));
+if (!(await listId(LIST_USERS_EN))) {
+log('「' + LIST_USERS_EN + '」を作成中…');
+await spPost('/_api/web/lists', { Title: LIST_USERS_EN, BaseTemplate: 100, Description: EN_LIST_DESC });
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('Title')", { Title: EN_FIELD_TITLE.Title });
+await ensureField(LIST_USERS_EN, 'Company', EN_FIELD_TITLE.Company, { FieldTypeKind: 2 });
+await ensureField(LIST_USERS_EN, 'Email', EN_FIELD_TITLE.Email, { FieldTypeKind: 2 });
+await createChoiceField(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType,
+CHANGE_TYPE_DEFAULTS.map(toEnChangeType), true);
+await createChoiceField(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission,
+PERMISSION_DEFAULTS.map(toEnPermission), true);
+await ensureField(LIST_USERS_EN, 'Notes', EN_FIELD_TITLE.Notes, { FieldTypeKind: 3 });
+await ensureField(LIST_USERS_EN, 'AppliedDate', EN_FIELD_TITLE.AppliedDate, { FieldTypeKind: 4 });
+await ensureField(LIST_USERS_EN, 'SystemDeleted', EN_FIELD_TITLE.SystemDeleted, { FieldTypeKind: 8, DefaultValue: '0' });
+}
+await ensureField(LIST_USERS_EN, 'L2All', EN_FIELD_TITLE.L2All, { FieldTypeKind: 8, DefaultValue: '0' });
+if (!(await fieldExists(LIST_USERS_EN, 'WorkStatus'))) {
+const xml = "<Field Type='Choice' DisplayName='WorkStatus' Name='WorkStatus' StaticName='WorkStatus'" +
+" Format='Dropdown'><Default>" + xmlEsc(toEnWorkStatus(WORK_STATUS_DEFAULT)) + '</Default><CHOICES>' +
+WORK_STATUS.map((c) => '<CHOICE>' + xmlEsc(toEnWorkStatus(c)) + '</CHOICE>').join('') + '</CHOICES></Field>';
+await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('WorkStatus')", { Title: EN_FIELD_TITLE.WorkStatus });
+}
+log(LIST_USERS_EN + ': 選択肢を更新中…');
+await setChoices(LIST_USERS_EN, 'OrgLevel1', EN_FIELD_TITLE.OrgLevel1, enL1.map(nameL1), false);
+await setChoices(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType,
+state.choices.changeType.map(toEnChangeType), true);
+await setChoices(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission,
+state.choices.permission.map(toEnPermission), true);
+log(LIST_USERS_EN + ': チェック列を更新中…');
+const existing = await spGet(lt(LIST_USERS_EN) +
+"/fields?$select=InternalName,Title,ClientValidationFormula&$filter=startswith(InternalName,'L2_')");
+const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
+const cvfByInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.ClientValidationFormula || '']));
+const enName2 = (x) => x.TitleEn || x.Title;
+const titleCount = new Map();
+enL2.forEach((x) => titleCount.set(enName2(x), (titleCount.get(enName2(x)) || 0) + 1));
+const displayOf = (x) => safeTitle(titleCount.get(enName2(x)) > 1
+? enName2(x) + '(' + (l1NameById.get(x.Level1.Id)) + ')' : enName2(x));
+const newCols = [];
+for (const x of enL2) {
+const internal = 'L2_' + x.Id;
+const display = displayOf(x);
+if (!byInternal.has(internal)) {
+const xml = "<Field Type='Boolean' DisplayName='" + internal + "' Name='" + internal +
+"' StaticName='" + internal + "'><Default>0</Default></Field>";
+await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
+newCols.push(internal);
+} else if (byInternal.get(internal) !== display) {
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
+}
+}
+for (const x of enL2) {
+const internal = 'L2_' + x.Id;
+if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
+const cond = "=if([$OrgLevel1] == '" + String(l1NameById.get(x.Level1.Id)).replace(/'/g, '') +
+"' && [$L2All] != true, 'true', 'false')";
+if (cvfByInternal.get(internal) !== cond) {
+try { await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { ClientValidationFormula: cond }); } catch { }
+}
+}
+try { await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('L2All')", { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" }); } catch { }
+log(LIST_USERS_EN + ': 集計列を更新中…');
+const subDefs = [];
+for (const l1 of enL1) {
+const kids = enL2.filter((x) => x.Level1.Id === l1.Id);
+if (!kids.length) continue;
+const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"✅","☐")&' + calcLit(displayOf(x))).join('&" / "&');
+const allChecked = calcLit(kids.map((x) => '✅' + displayOf(x)).join(' / '));
+subDefs.push({ internal: 'O2S_' + l1.Id, l1, formula: '=IF([' + EN_FIELD_TITLE.L2All + '],' + allChecked + ',' + perCheck + ')' });
+}
+const finalFormula = subDefs.length
+? '=' + subDefs.map((d) => 'IF([' + EN_FIELD_TITLE.OrgLevel1 + ']="' + nameL1(d.l1) + '",[' + d.internal + '],"")').join('&')
+: '=""';
+try {
+const existingSubs = await spGet(lt(LIST_USERS_EN) + "/fields?$select=InternalName,Formula&$filter=startswith(InternalName,'O2S_')");
+const subByName = new Map((existingSubs.value || []).map((f) => [f.InternalName, f.Formula || '']));
+for (const d of subDefs) {
+if (!subByName.has(d.internal)) {
+const refs = "<FieldRef Name='L2All'/>" + enL2.filter((x) => x.Level1.Id === d.l1.Id).map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+const xml = "<Field Type='Calculated' DisplayName='" + d.internal + "' Name='" + d.internal +
+"' StaticName='" + d.internal + "' ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(d.formula) + '</Formula><FieldRefs>' + refs + '</FieldRefs></Field>';
+await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+} else if (subByName.get(d.internal) !== d.formula) {
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + d.internal + "')", { Formula: d.formula });
+}
+}
+for (const name of subByName.keys()) {
+if (!subDefs.some((d) => d.internal === name)) {
+try { await spDelete(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + name + "')"); } catch { }
+}
+}
+if (!(await fieldExists(LIST_USERS_EN, 'OrgLevel2'))) {
+const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
+" ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula><FieldRefs><FieldRef Name='OrgLevel1'/></FieldRefs></Field>";
+await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+}
+await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: EN_FIELD_TITLE.OrgLevel2, Formula: finalFormula });
+} catch (e) { summary.formulaWarn = e.message; }
+await applyListFormatting(state, LIST_USERS_EN, 'en');
+await addViewFields(LIST_USERS_EN, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+try { await applyColumnOrder(['OrgLevel1', 'L2All', 'OrgLevel2'].concat(enL2.map((x) => 'L2_' + x.Id)), LIST_USERS_EN); } catch { }
+log(LIST_USERS_EN + ': 利用者を反映中…');
+try {
+const cur = (await spGet(lt(LIST_USERS_EN) + '/items?$select=Id&$top=5000')).value || [];
+for (const it of cur) { try { await spDelete(lt(LIST_USERS_EN) + '/items(' + it.Id + ')'); } catch { } }
+const enTitleSet = new Set(enL1.map((x) => x.Title));
+const targets = state.users.filter((u) => enTitleSet.has(u.OrgLevel1 || ''));
+let n = 0;
+for (const u of targets) {
+log(LIST_USERS_EN + ': 利用者を反映中… (' + (++n) + '/' + targets.length + ')');
+const l1 = state.l1.find((x) => x.Title === (u.OrgLevel1 || ''));
+const body = {
+Title: u.Title || '', Company: u.Company || '', Email: u.Email || '',
+ChangeType: u.ChangeType ? toEnChangeType(u.ChangeType) : '',
+Permission: u.Permission ? toEnPermission(u.Permission) : '',
+OrgLevel1: l1 ? (l1.TitleEn || l1.Title) : (u.OrgLevel1 || ''),
+Notes: u.Notes || '', SystemDeleted: u.SystemDeleted === true, L2All: u.L2All === true,
+WorkStatus: toEnWorkStatus(u.WorkStatus || WORK_STATUS_DEFAULT),
+};
+for (const k of Object.keys(u)) { if (/^L2_\d+$/.test(k) && u[k] === true) body[k] = true; }
+try { await spPost(lt(LIST_USERS_EN) + '/items', body); summary.users++; } catch { }
+}
+} catch (e) { summary.usersWarn = e.message; }
+return summary;
+}
 function chipFormatterJson(classMap, deflt) {
 const entries = Object.entries(classMap);
 let cls = "'" + deflt + "'";
@@ -551,20 +698,24 @@ height: '22px',
 attributes: { class: '=' + cls },
 });
 }
-async function applyListFormatting(state) {
-const ctFmt = chipFormatterJson({
-追加: 'sp-css-backgroundColor-BgMintGreen', 新規: 'sp-css-backgroundColor-BgMintGreen',
-更新: 'sp-css-backgroundColor-BgCornflowerBlue', 変更: 'sp-css-backgroundColor-BgCornflowerBlue',
-削除: 'sp-css-backgroundColor-BgCoral',
-変更なし: 'sp-css-backgroundColor-BgLightGray',
-}, 'sp-css-backgroundColor-BgLightGray');
-const pmFmt = chipFormatterJson({
-更新者: 'sp-css-backgroundColor-BgCornflowerBlue',
-閲覧者: 'sp-css-backgroundColor-BgLightGray',
-}, 'sp-css-backgroundColor-BgLightGray');
+async function applyListFormatting(state, listTitle, lang) {
+const target = listTitle || LIST_USERS;
+const tr = (lang === 'en');
+const ctMap = {};
+ctMap[tr ? toEnChangeType('追加') : '追加'] = 'sp-css-backgroundColor-BgMintGreen';
+ctMap[tr ? toEnChangeType('新規') : '新規'] = 'sp-css-backgroundColor-BgMintGreen';
+ctMap[tr ? toEnChangeType('更新') : '更新'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+ctMap[tr ? toEnChangeType('変更') : '変更'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+ctMap[tr ? toEnChangeType('削除') : '削除'] = 'sp-css-backgroundColor-BgCoral';
+ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = 'sp-css-backgroundColor-BgLightGray';
+const ctFmt = chipFormatterJson(ctMap, 'sp-css-backgroundColor-BgLightGray');
+const pmMap = {};
+pmMap[tr ? toEnPermission('更新者') : '更新者'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = 'sp-css-backgroundColor-BgLightGray';
+const pmFmt = chipFormatterJson(pmMap, 'sp-css-backgroundColor-BgLightGray');
 const setFmt = async (internal, json) => {
 try {
-await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
 { CustomFormatter: json });
 } catch { }
 };
@@ -572,20 +723,21 @@ await setFmt('ChangeType', ctFmt);
 await setFmt('Permission', pmFmt);
 const calcCols = ['OrgLevel2'];
 try {
-const subs = await spGet(lt(LIST_USERS) +
+const subs = await spGet(lt(target) +
 "/fields?$select=InternalName&$filter=startswith(InternalName,'O2S_')");
 for (const f of (subs.value || [])) calcCols.push(f.InternalName);
 } catch { }
 for (const c of calcCols) {
-try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { }
-try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { }
+try { await spPost(lt(target) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { }
+try { await spPost(lt(target) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { }
 }
 }
-async function applyColumnOrder(orderedManaged) {
+async function applyColumnOrder(orderedManaged, listTitle) {
+const target = listTitle || LIST_USERS;
 const TITLE_ALIAS = new Set(['LinkTitle', 'Title', 'LinkTitleNoMenu']);
 const DESIRED = ['LinkTitle', 'Company', 'Email', 'ChangeType', 'Permission',
 'OrgLevel1', 'OrgLevel2', 'Notes', 'AppliedDate', 'SystemDeleted', 'Modified', 'Editor'];
-let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+let current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
 const counts = new Map();
 current.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
 let hadDupes = false;
@@ -594,39 +746,39 @@ if (c <= 1) continue;
 hadDupes = true;
 for (let i = 0; i < c; i++) {
 try {
-await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')");
+await spPost(lt(target) + "/defaultview/viewfields/removeviewfield('" + n + "')");
 } catch { break; }
 }
-await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
+await spPost(lt(target) + "/defaultview/viewfields/addviewfield('" + n + "')");
 }
-if (hadDupes) current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+if (hadDupes) current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
 const titleField = current.find((n) => TITLE_ALIAS.has(n)) || 'LinkTitle';
 const desired = DESIRED.map((n) => (n === 'LinkTitle' ? titleField : n));
 const desiredSet = new Set(desired);
 for (const n of current) {
 if (desiredSet.has(n) || TITLE_ALIAS.has(n)) continue;
-try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { }
+try { await spPost(lt(target) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { }
 }
-current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
 for (const n of desired) {
 if (!current.includes(n)) {
-try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { }
+try { await spPost(lt(target) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { }
 }
 }
 for (let i = 0; i < desired.length; i++) {
 try {
-await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
+await spPost(lt(target) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
 } catch { }
 }
 const managedSet = new Set(orderedManaged);
-const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
+const cts = await spGet(lt(target) + "/contenttypes?$select=StringId");
 const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
 if (!ct) return;
-const links = await spGet(lt(LIST_USERS) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
+const links = await spGet(lt(target) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
 const names = (links.value || []).map((f) => f.Name);
 const ordered = names.filter((n) => !managedSet.has(n))
 .concat(orderedManaged.filter((n) => names.includes(n)));
-await spReorderContentTypeFields(LIST_USERS, ordered);
+await spReorderContentTypeFields(target, ordered);
 }
 const CONF_KEY_ADMIN_GROUPS = 'adminGroups';
 let _siteGroupsCache = null;
@@ -5087,11 +5239,18 @@ permMsg = ps.skipped ? ' / 権限は変更なし(再適用なし)'
 } else {
 await saveSyncFp('perms', computePermsSnap(state, admins));
 }
+let enMsg = '';
+if (anyEnAssigned(state)) {
+const en = await syncEnglishUserList(state, setStatus);
+if (en.built) enMsg = ' / 英語リストに ' + en.users + '件を反映';
+if (en.formulaWarn) toast('warn', '英語リストの集計式: ' + en.formulaWarn);
+if (en.usersWarn) toast('warn', '英語リストの利用者反映: ' + en.usersWarn);
+}
 await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
-permMsg);
+permMsg + enMsg);
 if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
 if (s.org2Migrated) toast('warn', s.org2Migrated);
 if (s.org2Mode) state.org2Mode = s.org2Mode;

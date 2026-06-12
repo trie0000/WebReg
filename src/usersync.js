@@ -319,6 +319,175 @@ async function syncMastersToUserList(state, log) {
   return summary;
 }
 
+// 計算式の文字列リテラルは255文字まで(実機の罠)。長い文字列は120文字ごとに分割して & 連結
+const LIT_MAX = 120;
+function calcLit(s) {
+  const chunks = [];
+  for (let i = 0; i < s.length || i === 0; i += LIT_MAX) {
+    chunks.push('"' + s.slice(i, i + LIT_MAX).replace(/"/g, '""') + '"');
+  }
+  return chunks.join('&');
+}
+
+// 英語版利用者リスト(LIST_USERS_EN)を生成・反映する。
+// 海外/両方に振り分けた組織区分1だけを対象に、英語の列名・組織名・選択肢値・集計列・
+// 条件式・色チップで構築し、日本語リスト(source)の該当利用者を転記する。
+async function syncEnglishUserList(state, log) {
+  const summary = { built: false, users: 0 };
+  // 対象 = 海外/両方 に振り分けられた有効な組織区分1
+  const enL1 = state.l1.filter((x) => x.Active !== false && goesToEn(assignOf(state, x.Title)));
+  if (!enL1.length) return summary; // 英語対象が無ければ何もしない
+  summary.built = true;
+
+  const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
+  const enL1Ids = new Set(enL1.map((x) => x.Id));
+  const enL2 = state.l2
+    .filter((x) => x.Active !== false && x.Level1 && enL1Ids.has(x.Level1.Id))
+    .sort((a, b) => (l1Order.get(a.Level1.Id) - l1Order.get(b.Level1.Id)) ||
+      ((a.SortOrder || 0) - (b.SortOrder || 0)) || (a.Id - b.Id));
+  const nameL1 = (x) => safeTitle(x.TitleEn || x.Title);
+  const l1NameById = new Map(state.l1.map((x) => [x.Id, x.TitleEn || x.Title]));
+
+  // ---- リスト作成(英語表示名) ----
+  if (!(await listId(LIST_USERS_EN))) {
+    log('「' + LIST_USERS_EN + '」を作成中…');
+    await spPost('/_api/web/lists', { Title: LIST_USERS_EN, BaseTemplate: 100, Description: EN_LIST_DESC });
+    await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('Title')", { Title: EN_FIELD_TITLE.Title });
+    await ensureField(LIST_USERS_EN, 'Company', EN_FIELD_TITLE.Company, { FieldTypeKind: 2 });
+    await ensureField(LIST_USERS_EN, 'Email', EN_FIELD_TITLE.Email, { FieldTypeKind: 2 });
+    await createChoiceField(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType,
+      CHANGE_TYPE_DEFAULTS.map(toEnChangeType), true);
+    await createChoiceField(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission,
+      PERMISSION_DEFAULTS.map(toEnPermission), true);
+    await ensureField(LIST_USERS_EN, 'Notes', EN_FIELD_TITLE.Notes, { FieldTypeKind: 3 });
+    await ensureField(LIST_USERS_EN, 'AppliedDate', EN_FIELD_TITLE.AppliedDate, { FieldTypeKind: 4 });
+    await ensureField(LIST_USERS_EN, 'SystemDeleted', EN_FIELD_TITLE.SystemDeleted, { FieldTypeKind: 8, DefaultValue: '0' });
+  }
+  await ensureField(LIST_USERS_EN, 'L2All', EN_FIELD_TITLE.L2All, { FieldTypeKind: 8, DefaultValue: '0' });
+  if (!(await fieldExists(LIST_USERS_EN, 'WorkStatus'))) {
+    const xml = "<Field Type='Choice' DisplayName='WorkStatus' Name='WorkStatus' StaticName='WorkStatus'" +
+      " Format='Dropdown'><Default>" + xmlEsc(toEnWorkStatus(WORK_STATUS_DEFAULT)) + '</Default><CHOICES>' +
+      WORK_STATUS.map((c) => '<CHOICE>' + xmlEsc(toEnWorkStatus(c)) + '</CHOICE>').join('') + '</CHOICES></Field>';
+    await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+    await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('WorkStatus')", { Title: EN_FIELD_TITLE.WorkStatus });
+  }
+
+  // ---- 選択肢列 ----
+  log(LIST_USERS_EN + ': 選択肢を更新中…');
+  await setChoices(LIST_USERS_EN, 'OrgLevel1', EN_FIELD_TITLE.OrgLevel1, enL1.map(nameL1), false);
+  await setChoices(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType,
+    state.choices.changeType.map(toEnChangeType), true);
+  await setChoices(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission,
+    state.choices.permission.map(toEnPermission), true);
+
+  // ---- 組織区分2 チェック列(同名は英語名で一意化) ----
+  log(LIST_USERS_EN + ': チェック列を更新中…');
+  const existing = await spGet(lt(LIST_USERS_EN) +
+    "/fields?$select=InternalName,Title,ClientValidationFormula&$filter=startswith(InternalName,'L2_')");
+  const byInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.Title]));
+  const cvfByInternal = new Map((existing.value || []).map((f) => [f.InternalName, f.ClientValidationFormula || '']));
+  const enName2 = (x) => x.TitleEn || x.Title;
+  const titleCount = new Map();
+  enL2.forEach((x) => titleCount.set(enName2(x), (titleCount.get(enName2(x)) || 0) + 1));
+  const displayOf = (x) => safeTitle(titleCount.get(enName2(x)) > 1
+    ? enName2(x) + '(' + (l1NameById.get(x.Level1.Id)) + ')' : enName2(x));
+  const newCols = [];
+  for (const x of enL2) {
+    const internal = 'L2_' + x.Id;
+    const display = displayOf(x);
+    if (!byInternal.has(internal)) {
+      const xml = "<Field Type='Boolean' DisplayName='" + internal + "' Name='" + internal +
+        "' StaticName='" + internal + "'><Default>0</Default></Field>";
+      await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+      await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
+      newCols.push(internal);
+    } else if (byInternal.get(internal) !== display) {
+      await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { Title: display });
+    }
+  }
+
+  // ---- フォーム条件付き表示(英語の OrgLevel1 値で分岐) ----
+  for (const x of enL2) {
+    const internal = 'L2_' + x.Id;
+    if (!byInternal.has(internal) && !newCols.includes(internal)) continue;
+    const cond = "=if([$OrgLevel1] == '" + String(l1NameById.get(x.Level1.Id)).replace(/'/g, '') +
+      "' && [$L2All] != true, 'true', 'false')";
+    if (cvfByInternal.get(internal) !== cond) {
+      try { await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + internal + "')", { ClientValidationFormula: cond }); } catch { /* ignore */ }
+    }
+  }
+  try { await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('L2All')", { ClientValidationFormula: "=if([$OrgLevel1] != '', 'true', 'false')" }); } catch { /* ignore */ }
+
+  // ---- 2段集計列(英語名) ----
+  log(LIST_USERS_EN + ': 集計列を更新中…');
+  const subDefs = [];
+  for (const l1 of enL1) {
+    const kids = enL2.filter((x) => x.Level1.Id === l1.Id);
+    if (!kids.length) continue;
+    const perCheck = kids.map((x) => 'IF([' + displayOf(x) + '],"✅","☐")&' + calcLit(displayOf(x))).join('&" / "&');
+    const allChecked = calcLit(kids.map((x) => '✅' + displayOf(x)).join(' / '));
+    subDefs.push({ internal: 'O2S_' + l1.Id, l1, formula: '=IF([' + EN_FIELD_TITLE.L2All + '],' + allChecked + ',' + perCheck + ')' });
+  }
+  const finalFormula = subDefs.length
+    ? '=' + subDefs.map((d) => 'IF([' + EN_FIELD_TITLE.OrgLevel1 + ']="' + nameL1(d.l1) + '",[' + d.internal + '],"")').join('&')
+    : '=""';
+  try {
+    const existingSubs = await spGet(lt(LIST_USERS_EN) + "/fields?$select=InternalName,Formula&$filter=startswith(InternalName,'O2S_')");
+    const subByName = new Map((existingSubs.value || []).map((f) => [f.InternalName, f.Formula || '']));
+    for (const d of subDefs) {
+      if (!subByName.has(d.internal)) {
+        const refs = "<FieldRef Name='L2All'/>" + enL2.filter((x) => x.Level1.Id === d.l1.Id).map((x) => "<FieldRef Name='L2_" + x.Id + "'/>").join('');
+        const xml = "<Field Type='Calculated' DisplayName='" + d.internal + "' Name='" + d.internal +
+          "' StaticName='" + d.internal + "' ResultType='Text' ReadOnly='TRUE'><Formula>" + xmlEsc(d.formula) + '</Formula><FieldRefs>' + refs + '</FieldRefs></Field>';
+        await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+      } else if (subByName.get(d.internal) !== d.formula) {
+        await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + d.internal + "')", { Formula: d.formula });
+      }
+    }
+    for (const name of subByName.keys()) {
+      if (!subDefs.some((d) => d.internal === name)) {
+        try { await spDelete(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('" + name + "')"); } catch { /* ignore */ }
+      }
+    }
+    if (!(await fieldExists(LIST_USERS_EN, 'OrgLevel2'))) {
+      const xml = "<Field Type='Calculated' DisplayName='OrgLevel2' Name='OrgLevel2' StaticName='OrgLevel2'" +
+        " ResultType='Text' ReadOnly='TRUE'><Formula>=\"\"</Formula><FieldRefs><FieldRef Name='OrgLevel1'/></FieldRefs></Field>";
+      await spPost(lt(LIST_USERS_EN) + '/fields/createfieldasxml', { parameters: { SchemaXml: xml } });
+    }
+    await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('OrgLevel2')", { Title: EN_FIELD_TITLE.OrgLevel2, Formula: finalFormula });
+  } catch (e) { summary.formulaWarn = e.message; }
+
+  // ---- 表示設定(チップ色 + 集計列をフォームから隠す + ビュー列順) ----
+  await applyListFormatting(state, LIST_USERS_EN, 'en');
+  await addViewFields(LIST_USERS_EN, ['OrgLevel1', 'OrgLevel2'].concat(newCols));
+  try { await applyColumnOrder(['OrgLevel1', 'L2All', 'OrgLevel2'].concat(enL2.map((x) => 'L2_' + x.Id)), LIST_USERS_EN); } catch { /* ignore */ }
+
+  // ---- 利用者の転記(英語対象を日本語リストから。全消し→再投入の単純同期) ----
+  log(LIST_USERS_EN + ': 利用者を反映中…');
+  try {
+    const cur = (await spGet(lt(LIST_USERS_EN) + '/items?$select=Id&$top=5000')).value || [];
+    for (const it of cur) { try { await spDelete(lt(LIST_USERS_EN) + '/items(' + it.Id + ')'); } catch { /* ignore */ } }
+    const enTitleSet = new Set(enL1.map((x) => x.Title)); // source の OrgLevel1(日本語)で判定
+    const targets = state.users.filter((u) => enTitleSet.has(u.OrgLevel1 || ''));
+    let n = 0;
+    for (const u of targets) {
+      log(LIST_USERS_EN + ': 利用者を反映中… (' + (++n) + '/' + targets.length + ')');
+      const l1 = state.l1.find((x) => x.Title === (u.OrgLevel1 || ''));
+      const body = {
+        Title: u.Title || '', Company: u.Company || '', Email: u.Email || '',
+        ChangeType: u.ChangeType ? toEnChangeType(u.ChangeType) : '',
+        Permission: u.Permission ? toEnPermission(u.Permission) : '',
+        OrgLevel1: l1 ? (l1.TitleEn || l1.Title) : (u.OrgLevel1 || ''),
+        Notes: u.Notes || '', SystemDeleted: u.SystemDeleted === true, L2All: u.L2All === true,
+        WorkStatus: toEnWorkStatus(u.WorkStatus || WORK_STATUS_DEFAULT),
+      };
+      for (const k of Object.keys(u)) { if (/^L2_\d+$/.test(k) && u[k] === true) body[k] = true; }
+      try { await spPost(lt(LIST_USERS_EN) + '/items', body); summary.users++; } catch { /* 1件失敗は継続 */ }
+    }
+  } catch (e) { summary.usersWarn = e.message; }
+  return summary;
+}
+
 // 選択肢→SPテーマ色クラスのチップ列フォーマットを生成する(モダンの既定チップに色だけ付ける)。
 // 色は SP 標準の sp-css-backgroundColor-Bg* クラスで指定(自前の色値は使わない)。
 // 空欄はチップを出さない(display:none)
@@ -345,23 +514,27 @@ function chipFormatterJson(classMap, deflt) {
   });
 }
 
-// 変更区分/権限の選択肢に SP 標準色を付け、読み取り専用の集計列をフォームから隠す
-async function applyListFormatting(state) {
+// 変更区分/権限の選択肢に SP 標準色を付け、読み取り専用の集計列をフォームから隠す。
+// listTitle 省略時は日本語の利用者一覧。lang='en' のときは英語の選択肢値に色を付ける
+async function applyListFormatting(state, listTitle, lang) {
+  const target = listTitle || LIST_USERS;
+  const tr = (lang === 'en');
   // SP テーマの淡色クラス(実機で描画を確認済み)。追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰
-  const ctFmt = chipFormatterJson({
-    追加: 'sp-css-backgroundColor-BgMintGreen', 新規: 'sp-css-backgroundColor-BgMintGreen',
-    更新: 'sp-css-backgroundColor-BgCornflowerBlue', 変更: 'sp-css-backgroundColor-BgCornflowerBlue',
-    削除: 'sp-css-backgroundColor-BgCoral',
-    変更なし: 'sp-css-backgroundColor-BgLightGray',
-  }, 'sp-css-backgroundColor-BgLightGray');
-  // 権限: 更新者=青 / 閲覧者=灰
-  const pmFmt = chipFormatterJson({
-    更新者: 'sp-css-backgroundColor-BgCornflowerBlue',
-    閲覧者: 'sp-css-backgroundColor-BgLightGray',
-  }, 'sp-css-backgroundColor-BgLightGray');
+  const ctMap = {};
+  ctMap[tr ? toEnChangeType('追加') : '追加'] = 'sp-css-backgroundColor-BgMintGreen';
+  ctMap[tr ? toEnChangeType('新規') : '新規'] = 'sp-css-backgroundColor-BgMintGreen';
+  ctMap[tr ? toEnChangeType('更新') : '更新'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+  ctMap[tr ? toEnChangeType('変更') : '変更'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+  ctMap[tr ? toEnChangeType('削除') : '削除'] = 'sp-css-backgroundColor-BgCoral';
+  ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = 'sp-css-backgroundColor-BgLightGray';
+  const ctFmt = chipFormatterJson(ctMap, 'sp-css-backgroundColor-BgLightGray');
+  const pmMap = {};
+  pmMap[tr ? toEnPermission('更新者') : '更新者'] = 'sp-css-backgroundColor-BgCornflowerBlue';
+  pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = 'sp-css-backgroundColor-BgLightGray';
+  const pmFmt = chipFormatterJson(pmMap, 'sp-css-backgroundColor-BgLightGray');
   const setFmt = async (internal, json) => {
     try {
-      await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + internal + "')",
+      await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
         { CustomFormatter: json });
     } catch { /* 書式設定は失敗しても反映は継続 */ }
   };
@@ -371,13 +544,13 @@ async function applyListFormatting(state) {
   // 読み取り専用の集計列(統合列 OrgLevel2 + 中間列 O2S_*)を新規/編集フォームから隠す
   const calcCols = ['OrgLevel2'];
   try {
-    const subs = await spGet(lt(LIST_USERS) +
+    const subs = await spGet(lt(target) +
       "/fields?$select=InternalName&$filter=startswith(InternalName,'O2S_')");
     for (const f of (subs.value || [])) calcCols.push(f.InternalName);
   } catch { /* ignore */ }
   for (const c of calcCols) {
-    try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { /* ignore */ }
-    try { await spPost(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { /* ignore */ }
+    try { await spPost(lt(target) + "/fields/getbyinternalnameortitle('" + c + "')/setshowinnewform(false)"); } catch { /* ignore */ }
+    try { await spPost(lt(target) + "/fields/getbyinternalnameortitle('" + c + "')/setshowineditform(false)"); } catch { /* ignore */ }
   }
 }
 
@@ -385,12 +558,13 @@ async function applyListFormatting(state) {
 // 列順を orderedManaged(組織区分1 → すべて → 集計列 → 組織区分2チェック列)に揃える。
 // 既定ビュー = 利用者名/会社名/メール/変更区分/権限/組織区分1/組織区分2/特記事項/
 //              システム反映日/システム削除/更新日時/更新者(個別の L2_* チェック列は出さない)
-async function applyColumnOrder(orderedManaged) {
+async function applyColumnOrder(orderedManaged, listTitle) {
+  const target = listTitle || LIST_USERS;
   const TITLE_ALIAS = new Set(['LinkTitle', 'Title', 'LinkTitleNoMenu']);
   const DESIRED = ['LinkTitle', 'Company', 'Email', 'ChangeType', 'Permission',
     'OrgLevel1', 'OrgLevel2', 'Notes', 'AppliedDate', 'SystemDeleted', 'Modified', 'Editor'];
 
-  let current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  let current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
   // 過去の重複追加(実機 addviewfield の仕様)を掃除。
   // removeviewfield は1回の呼び出しで1つしか消えないため、出現回数分削除して1つ追加し直す
   const counts = new Map();
@@ -401,12 +575,12 @@ async function applyColumnOrder(orderedManaged) {
     hadDupes = true;
     for (let i = 0; i < c; i++) {
       try {
-        await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')");
+        await spPost(lt(target) + "/defaultview/viewfields/removeviewfield('" + n + "')");
       } catch { break; /* 全部消えたら終了 */ }
     }
-    await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')");
+    await spPost(lt(target) + "/defaultview/viewfields/addviewfield('" + n + "')");
   }
-  if (hadDupes) current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  if (hadDupes) current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
 
   // ビューにあるタイトル列の内部名(LinkTitle 既定)を使う
   const titleField = current.find((n) => TITLE_ALIAS.has(n)) || 'LinkTitle';
@@ -415,30 +589,30 @@ async function applyColumnOrder(orderedManaged) {
   // 指定外の列(L2_*・組織区分2のすべて・中間列・改廃ステータス等)をビューから外す
   for (const n of current) {
     if (desiredSet.has(n) || TITLE_ALIAS.has(n)) continue;
-    try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { /* ignore */ }
+    try { await spPost(lt(target) + "/defaultview/viewfields/removeviewfield('" + n + "')"); } catch { /* ignore */ }
   }
   // 不足列を追加
-  current = (await spGet(lt(LIST_USERS) + '/defaultview/viewfields')).Items || [];
+  current = (await spGet(lt(target) + '/defaultview/viewfields')).Items || [];
   for (const n of desired) {
     if (!current.includes(n)) {
-      try { await spPost(lt(LIST_USERS) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { /* 追加不可の組込列はスキップ */ }
+      try { await spPost(lt(target) + "/defaultview/viewfields/addviewfield('" + n + "')"); } catch { /* 追加不可の組込列はスキップ */ }
     }
   }
   // 指定順に並べる(ビューに無い列はスキップ)
   for (let i = 0; i < desired.length; i++) {
     try {
-      await spPost(lt(LIST_USERS) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
+      await spPost(lt(target) + '/defaultview/viewfields/moveviewfieldto', { field: desired[i], index: i });
     } catch { /* ignore */ }
   }
 
   // SP標準フォーム: FieldLinks の全体順(管理対象以外は現状維持で先頭、管理対象を末尾)
   const managedSet = new Set(orderedManaged);
-  const cts = await spGet(lt(LIST_USERS) + "/contenttypes?$select=StringId");
+  const cts = await spGet(lt(target) + "/contenttypes?$select=StringId");
   const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
   if (!ct) return;
-  const links = await spGet(lt(LIST_USERS) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
+  const links = await spGet(lt(target) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
   const names = (links.value || []).map((f) => f.Name);
   const ordered = names.filter((n) => !managedSet.has(n))
     .concat(orderedManaged.filter((n) => names.includes(n)));
-  await spReorderContentTypeFields(LIST_USERS, ordered);
+  await spReorderContentTypeFields(target, ordered);
 }
