@@ -117,6 +117,7 @@
   function setStatus(msg) {
     const f = root.querySelector('.pr-status');
     if (f) f.textContent = msg;
+    progressFeed(msg); // 実行中なら進捗モーダルにも反映(件数付きはバー+残り時間)
     if (isDebug()) console.log('[WebReg] status:', msg);
   }
 
@@ -126,6 +127,7 @@
     state.busy = true;
     app.style.opacity = '0.55';
     app.style.pointerEvents = 'none';
+    progressArm(label); // 0.6秒以上かかる処理は進捗モーダルを表示
     setStatus(label + '…');
     try {
       if (isDebug()) console.log('[WebReg] ' + label + ' 開始');
@@ -136,6 +138,7 @@
       setStatus('エラー: ' + e.message);
       toast('err', label + 'に失敗しました — ' + e.message);
     } finally {
+      progressDone();
       state.busy = false;
       app.style.opacity = '';
       app.style.pointerEvents = '';

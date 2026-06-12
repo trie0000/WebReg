@@ -300,6 +300,25 @@ const css = `
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
 
+/* ---- progress modal(処理中の進捗+残り時間) ---- */
+#${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }
+#${ROOT_ID} .pr-prog-msg{ font-size:var(--fs-md); color:var(--ink-3); min-height:1.5em; }
+#${ROOT_ID} .pr-prog-track{
+  height:8px; border-radius:4px; background:var(--paper-3); overflow:hidden; position:relative;
+}
+#${ROOT_ID} .pr-prog-fill{
+  height:100%; border-radius:4px; background:var(--accent); width:0;
+  transition:width .3s ease;
+}
+#${ROOT_ID} .pr-prog-fill.ind{ position:absolute; animation:pr-prog-slide 1.4s ease-in-out infinite; }
+@keyframes pr-prog-slide{ 0%{ left:-40%; } 100%{ left:100%; } }
+@media (prefers-reduced-motion: reduce){ #${ROOT_ID} .pr-prog-fill.ind{ animation:none; left:30%; } }
+#${ROOT_ID} .pr-prog-meta{
+  display:flex; justify-content:space-between; gap:var(--s-4);
+  font-size:var(--fs-sm); color:var(--ink-3);
+}
+#${ROOT_ID} .pr-prog-meta .pr-prog-count{ font-family:var(--font-mono); }
+
 /* ---- status bar ---- */
 #${ROOT_ID} .pr-status{
   flex:none; min-height:30px; padding:var(--s-1) var(--gutter);

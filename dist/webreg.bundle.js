@@ -23,7 +23,7 @@ LIST_CONF = p + BASE_LIST_CONF;
 }
 applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
-const PERMISSION_DEFAULTS = ['参照者', '更新者'];
+const PERMISSION_DEFAULTS = ['更新者', '閲覧者'];
 const LS_DEBUG = 'webreg.debug';
 const isDebug = () => {
 try { return localStorage.getItem(LS_DEBUG) === '1'; } catch { return false; }
@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-dc6ea2d6" !== 'undefined' ? "0.1.0-dc6ea2d6" : 'dev';
+const BUILD = typeof "0.1.0-7ef93477" !== 'undefined' ? "0.1.0-7ef93477" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -292,6 +292,16 @@ summary.createdList = await ensureUserList(log);
 await ensureField(LIST_USERS, 'L2All', '組織区分2のすべて', { FieldTypeKind: 8, DefaultValue: '0' });
 log(LABEL_L1 + 'の選択肢を更新中…');
 await setChoices(LIST_USERS, 'OrgLevel1', LABEL_L1, activeL1.map((x) => x.Title), false);
+try {
+const pm = await spGet(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Permission')?$select=Choices");
+if ((pm.Choices || []).includes('参照者')) {
+const used = await spGet(lt(LIST_USERS) + "/items?$select=Id&$filter=Permission eq '参照者'&$top=1");
+if (!(used.value || []).length) {
+await setChoices(LIST_USERS, 'Permission', '権限',
+pm.Choices.filter((x) => x !== '参照者'), true);
+}
+}
+} catch { }
 log(LABEL_L2 + 'のチェック列を更新中…');
 const existing = await spGet(lt(LIST_USERS) +
 "/fields?$select=InternalName,Title,ClientValidationFormula&$filter=startswith(InternalName,'L2_')");
@@ -990,6 +1000,24 @@ const css = `
 #${ROOT_ID} .pr-checks--perm .pr-check{ display:flex; padding:2px 0; white-space:normal; }
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
+/* ---- progress modal(処理中の進捗+残り時間) ---- */
+#${ROOT_ID} .pr-modal.pr-prog{ width:min(440px, 92vw); }
+#${ROOT_ID} .pr-prog-msg{ font-size:var(--fs-md); color:var(--ink-3); min-height:1.5em; }
+#${ROOT_ID} .pr-prog-track{
+  height:8px; border-radius:4px; background:var(--paper-3); overflow:hidden; position:relative;
+}
+#${ROOT_ID} .pr-prog-fill{
+  height:100%; border-radius:4px; background:var(--accent); width:0;
+  transition:width .3s ease;
+}
+#${ROOT_ID} .pr-prog-fill.ind{ position:absolute; animation:pr-prog-slide 1.4s ease-in-out infinite; }
+@keyframes pr-prog-slide{ 0%{ left:-40%; } 100%{ left:100%; } }
+@media (prefers-reduced-motion: reduce){ #${ROOT_ID} .pr-prog-fill.ind{ animation:none; left:30%; } }
+#${ROOT_ID} .pr-prog-meta{
+  display:flex; justify-content:space-between; gap:var(--s-4);
+  font-size:var(--fs-sm); color:var(--ink-3);
+}
+#${ROOT_ID} .pr-prog-meta .pr-prog-count{ font-family:var(--font-mono); }
 /* ---- status bar ---- */
 #${ROOT_ID} .pr-status{
   flex:none; min-height:30px; padding:var(--s-1) var(--gutter);
@@ -1152,6 +1180,89 @@ _root.appendChild(back);
 (input || back.querySelector('[data-mact="ok"]')).focus();
 if (input) input.select();
 });
+}
+let _prog = null;
+const progFmtDur = (ms) => {
+const s = Math.max(1, Math.round(ms / 1000));
+if (s < 60) return s + '秒';
+return Math.floor(s / 60) + '分' + (s % 60 ? (s % 60) + '秒' : '');
+};
+function progressArm(label) {
+progressDone();
+_prog = { label, opened: false, el: null, phase: '', phaseStart: Date.now(), counts: null };
+_prog.openTimer = setTimeout(progressShow, 600);
+_prog.tick = setInterval(progressRender, 1000);
+}
+function progressShow() {
+if (!_prog || _prog.opened) return;
+_prog.opened = true;
+_prog.el = el(`
+    <div class="pr-backdrop pr-prog-back">
+      <div class="pr-modal pr-prog" role="dialog" aria-modal="true" aria-label="処理中">
+        <h4></h4>
+        <div class="pr-prog-msg">処理中…</div>
+        <div class="pr-prog-track"><div class="pr-prog-fill ind"></div></div>
+        <div class="pr-prog-meta"><span class="pr-prog-count"></span><span class="pr-prog-eta"></span></div>
+        <span class="pr-note">このまま閉じずにお待ちください(進捗と残り時間は目安です)</span>
+      </div>
+    </div>`);
+_prog.el.querySelector('h4').textContent = _prog.label + '…';
+document.getElementById(ROOT_ID).appendChild(_prog.el);
+progressRender();
+}
+function progressFeed(msg) {
+if (!_prog) return;
+const m = String(msg).match(/^(.*?)\s*\((\d+)\/(\d+)\)\s*$/);
+const phase = m ? m[1] : String(msg);
+if (phase !== _prog.phase) {
+_prog.phase = phase;
+_prog.phaseStart = Date.now();
+_prog.counts = null;
+}
+if (m) {
+const n = +m[2];
+const total = +m[3];
+if (!_prog.counts) _prog.counts = { firstN: n - 1, firstT: Date.now() };
+_prog.counts.n = n;
+_prog.counts.total = total;
+if (!_prog.opened && total - n > 1) {
+clearTimeout(_prog.openTimer);
+progressShow();
+}
+}
+progressRender();
+}
+function progressRender() {
+if (!_prog || !_prog.opened) return;
+const e = _prog.el;
+e.querySelector('.pr-prog-msg').textContent = _prog.phase || '処理中…';
+const c = _prog.counts;
+const fill = e.querySelector('.pr-prog-fill');
+if (c && c.total) {
+fill.classList.remove('ind');
+fill.style.width = Math.min(100, Math.round((c.n / c.total) * 100)) + '%';
+e.querySelector('.pr-prog-count').textContent = c.n + ' / ' + c.total + '件';
+const span = c.n - c.firstN;
+let eta = '';
+if (c.n >= c.total) eta = 'まもなく完了…';
+else if (span >= 2) {
+const per = (Date.now() - c.firstT) / span;
+eta = '残り 約' + progFmtDur(per * (c.total - c.n));
+} else eta = '残り時間を計測中…';
+e.querySelector('.pr-prog-eta').textContent = eta;
+} else {
+fill.classList.add('ind');
+fill.style.width = '40%';
+e.querySelector('.pr-prog-count').textContent = '';
+e.querySelector('.pr-prog-eta').textContent = '経過 ' + progFmtDur(Date.now() - _prog.phaseStart);
+}
+}
+function progressDone() {
+if (!_prog) return;
+clearTimeout(_prog.openTimer);
+clearInterval(_prog.tick);
+if (_prog.el) _prog.el.remove();
+_prog = null;
 }
 const GRID_W = 'webreg.colw.';
 const GRID_O = 'webreg.colorder.';
@@ -2547,7 +2658,6 @@ rows.push([label(XLSX_LBL_COMP)].concat(cellRow(users.map((u) => u.Company || ''
 rows.push([label(XLSX_LBL_MAIL)].concat(cellRow(users.map((u) => u.Email || ''), XST_BORDER)));
 rows.push([label(XLSX_LBL_PERM)].concat(cellRow(users.map((u) => u.Permission || ''), XST_CENTER)));
 rows.push([label(XLSX_LBL_ACTION)].concat(cellRow(users.map(() => '変更なし'), XST_CENTER)));
-rows.push([label(XLSX_LBL_L2ALL)].concat(cellRow(users.map((u) => u.L2All === true ? XLSX_CHECK : ''), XST_CENTER)));
 for (const m of l2list) {
 rows.push([label(m.Title)].concat(cellRow(
 users.map((u) => (u.L2All === true || u['L2_' + m.Id] === true) ? XLSX_CHECK : ''), XST_CENTER)));
@@ -2561,7 +2671,7 @@ freeze: 'B3',
 validations: [
 { sqref: 'B5:' + last + '5', list: state.choices.permission },
 { sqref: 'B6:' + last + '6', list: XLSX_ACTIONS },
-{ sqref: 'B7:' + last + (7 + l2list.length), list: [XLSX_CHECK] },
+{ sqref: 'B7:' + last + (6 + l2list.length), list: [XLSX_CHECK] },
 ],
 };
 }
@@ -3002,6 +3112,7 @@ setRoot(root);
 function setStatus(msg) {
 const f = root.querySelector('.pr-status');
 if (f) f.textContent = msg;
+progressFeed(msg);
 if (isDebug()) console.log('[WebReg] status:', msg);
 }
 async function run(label, fn) {
@@ -3009,6 +3120,7 @@ if (state.busy) return;
 state.busy = true;
 app.style.opacity = '0.55';
 app.style.pointerEvents = 'none';
+progressArm(label);
 setStatus(label + '…');
 try {
 if (isDebug()) console.log('[WebReg] ' + label + ' 開始');
@@ -3019,6 +3131,7 @@ console.error('[WebReg] ' + label + ' 失敗:', e);
 setStatus('エラー: ' + e.message);
 toast('err', label + 'に失敗しました — ' + e.message);
 } finally {
+progressDone();
 state.busy = false;
 app.style.opacity = '';
 app.style.pointerEvents = '';

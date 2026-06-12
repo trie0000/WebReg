@@ -107,3 +107,100 @@ function modal({ title, message, inputValue, multiline, okLabel, danger }) {
     if (input) input.select();
   });
 }
+
+// ---- 進捗モーダル(時間のかかるリスト更新中に表示) ----------------------
+// run() が progressArm/progressDone で囲み、setStatus 経由の進捗文字列を
+// progressFeed が受け取る。「… (3/25)」形式なら進捗バー+残り時間の目安を出す。
+// 0.6秒未満で終わる操作には出さない(チラつき防止)
+
+let _prog = null;
+
+const progFmtDur = (ms) => {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return s + '秒';
+  return Math.floor(s / 60) + '分' + (s % 60 ? (s % 60) + '秒' : '');
+};
+
+function progressArm(label) {
+  progressDone();
+  _prog = { label, opened: false, el: null, phase: '', phaseStart: Date.now(), counts: null };
+  _prog.openTimer = setTimeout(progressShow, 600);
+  _prog.tick = setInterval(progressRender, 1000);
+}
+
+function progressShow() {
+  if (!_prog || _prog.opened) return;
+  _prog.opened = true;
+  _prog.el = el(`
+    <div class="pr-backdrop pr-prog-back">
+      <div class="pr-modal pr-prog" role="dialog" aria-modal="true" aria-label="処理中">
+        <h4></h4>
+        <div class="pr-prog-msg">処理中…</div>
+        <div class="pr-prog-track"><div class="pr-prog-fill ind"></div></div>
+        <div class="pr-prog-meta"><span class="pr-prog-count"></span><span class="pr-prog-eta"></span></div>
+        <span class="pr-note">このまま閉じずにお待ちください(進捗と残り時間は目安です)</span>
+      </div>
+    </div>`);
+  _prog.el.querySelector('h4').textContent = _prog.label + '…';
+  document.getElementById(ROOT_ID).appendChild(_prog.el);
+  progressRender();
+}
+
+function progressFeed(msg) {
+  if (!_prog) return;
+  const m = String(msg).match(/^(.*?)\s*\((\d+)\/(\d+)\)\s*$/);
+  const phase = m ? m[1] : String(msg);
+  if (phase !== _prog.phase) {
+    _prog.phase = phase;
+    _prog.phaseStart = Date.now();
+    _prog.counts = null;
+  }
+  if (m) {
+    const n = +m[2];
+    const total = +m[3];
+    if (!_prog.counts) _prog.counts = { firstN: n - 1, firstT: Date.now() };
+    _prog.counts.n = n;
+    _prog.counts.total = total;
+    // 件数付きの処理は残りがあるならすぐモーダルを出す
+    if (!_prog.opened && total - n > 1) {
+      clearTimeout(_prog.openTimer);
+      progressShow();
+    }
+  }
+  progressRender();
+}
+
+function progressRender() {
+  if (!_prog || !_prog.opened) return;
+  const e = _prog.el;
+  e.querySelector('.pr-prog-msg').textContent = _prog.phase || '処理中…';
+  const c = _prog.counts;
+  const fill = e.querySelector('.pr-prog-fill');
+  if (c && c.total) {
+    fill.classList.remove('ind');
+    fill.style.width = Math.min(100, Math.round((c.n / c.total) * 100)) + '%';
+    e.querySelector('.pr-prog-count').textContent = c.n + ' / ' + c.total + '件';
+    const span = c.n - c.firstN;
+    let eta = '';
+    if (c.n >= c.total) eta = 'まもなく完了…';
+    else if (span >= 2) {
+      const per = (Date.now() - c.firstT) / span;
+      eta = '残り 約' + progFmtDur(per * (c.total - c.n));
+    } else eta = '残り時間を計測中…';
+    e.querySelector('.pr-prog-eta').textContent = eta;
+  } else {
+    // 件数の無い工程は経過時間で「動いている」ことを示す(バーは流れるアニメ)
+    fill.classList.add('ind');
+    fill.style.width = '40%';
+    e.querySelector('.pr-prog-count').textContent = '';
+    e.querySelector('.pr-prog-eta').textContent = '経過 ' + progFmtDur(Date.now() - _prog.phaseStart);
+  }
+}
+
+function progressDone() {
+  if (!_prog) return;
+  clearTimeout(_prog.openTimer);
+  clearInterval(_prog.tick);
+  if (_prog.el) _prog.el.remove();
+  _prog = null;
+}
