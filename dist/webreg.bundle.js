@@ -50,7 +50,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-f98af5c1" !== 'undefined' ? "0.1.0-f98af5c1" : 'dev';
+const BUILD = typeof "0.1.0-2cba3b20" !== 'undefined' ? "0.1.0-2cba3b20" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -803,8 +803,11 @@ lb.style.display = !q || lb.textContent.toLowerCase().includes(q) ? '' : 'none';
 (async () => {
 try {
 groups = await fetchSiteGroups();
+const assigned = new Set(permGroupIdsOf(l1));
+const sorted = [...groups].sort((a, b) =>
+(assigned.has(b.Id) ? 1 : 0) - (assigned.has(a.Id) ? 1 : 0));
 back.querySelector('[data-pglist="g"]').innerHTML =
-permChecksHtml('g', groups, permGroupIdsOf(l1));
+permChecksHtml('g', sorted, [...assigned]);
 back.querySelector('[data-mact="ok"]').disabled = false;
 } catch (e) {
 back.querySelectorAll('.pr-checks--perm').forEach((p) => {
@@ -1324,6 +1327,26 @@ const css = `
 #${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
 #${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
 #${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
+/* ヘルプ画面 */
+#${ROOT_ID} .pr-help-body{ padding:var(--s-5) var(--gutter); overflow:auto; }
+#${ROOT_ID} .pr-help-sec{ margin-bottom:var(--s-7); }
+#${ROOT_ID} .pr-help-sec h5{
+  margin:0 0 var(--s-3); font-size:var(--fs-md); font-weight:700; color:var(--ink);
+  border-left:3px solid var(--accent); padding-left:var(--s-3);
+}
+#${ROOT_ID} .pr-help-sec ul{ margin:0; padding-left:var(--s-7); }
+#${ROOT_ID} .pr-help-sec li{ font-size:var(--fs-md); line-height:1.85; color:var(--ink-3); }
+#${ROOT_ID} .pr-help-sec li b{ color:var(--ink); font-weight:600; }
+#${ROOT_ID} .pr-oss{ font-size:var(--fs-sm); color:var(--ink-3); line-height:1.7; }
+/* 変更区分/権限の色チップ(SPリストと同じ色)。緑=追加 青=更新 赤=削除 灰=その他 */
+#${ROOT_ID} .pr-spchip{
+  display:inline-block; padding:1px var(--s-4); border-radius:999px;
+  font-size:var(--fs-sm); line-height:1.6; white-space:nowrap; color:#323130;
+}
+#${ROOT_ID} .pr-spchip--add{ background:rgb(202,240,204); }
+#${ROOT_ID} .pr-spchip--upd{ background:rgb(212,231,246); }
+#${ROOT_ID} .pr-spchip--del{ background:rgb(250,187,195); }
+#${ROOT_ID} .pr-spchip--gray{ background:rgb(229,229,229); }
 /* 改廃ステータスのチップ風インラインselect(その場で直接変更) */
 #${ROOT_ID} .pr-chipsel{
   height:26px !important; padding:0 var(--s-4) !important;
@@ -1809,6 +1832,23 @@ if (c.key === 'org1') return LABEL_L1;
 if (c.key === 'org2') return LABEL_L2;
 return c.label;
 }
+function ctChipHtml(v) {
+if (!v) return '';
+const cls = (v === '追加' || v === '新規') ? 'pr-spchip--add'
+: (v === '更新' || v === '変更') ? 'pr-spchip--upd'
+: (v === '削除') ? 'pr-spchip--del' : 'pr-spchip--gray';
+return '<span class="pr-spchip ' + cls + '">' + esc(v) + '</span>';
+}
+function pmChipHtml(v) {
+if (!v) return '';
+const cls = (v === '更新者') ? 'pr-spchip--upd' : 'pr-spchip--gray';
+return '<span class="pr-spchip ' + cls + '">' + esc(v) + '</span>';
+}
+function userCellDisplay(state, c, u) {
+if (c.key === 'changeType') return ctChipHtml(u.ChangeType || '');
+if (c.key === 'permission') return pmChipHtml(u.Permission || '');
+return esc(userCellText(state, c, u));
+}
 function userCellText(state, c, u) {
 if (c.key === 'org2') return userOrg2Text(state, u);
 if (c.key === 'modified') {
@@ -1877,7 +1917,7 @@ esc(userColLabel(c)) + arrow + '</th>';
 const rowHtml = (u) => `
     <tr data-uid="${u.Id}" class="${u.SystemDeleted === true ? 'pr-udel' : ''}">
       <td class="pr-uchk"><input type="checkbox" data-usel="${u.Id}" aria-label="選択" ${selectedUserIds.has(u.Id) ? 'checked' : ''}></td>
-      ${cols.map((c) => '<td>' + (c.key === 'name' ? badgeHtml(u) : '') + esc(userCellText(state, c, u)) + '</td>').join('')}
+      ${cols.map((c) => '<td>' + (c.key === 'name' ? badgeHtml(u) : '') + userCellDisplay(state, c, u) + '</td>').join('')}
     </tr>`;
 return `
     <div class="pr-sub pr-sub--users">
@@ -2271,12 +2311,15 @@ return '<select class="pr-chipsel ' + reqStatusClass(cur) + '" data-reqstatus="'
 WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
 '</select>';
 };
+const cellHtml = (c, u) => c.key === 'changeType' ? ctChipHtml(u.ChangeType || '')
+: c.key === 'permission' ? pmChipHtml(u.Permission || '')
+: esc(reqCellText(state, c, u));
 const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
 '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
 (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
 cols.map((c) => c.key === 'status'
 ? '<td>' + statusCell(u) + '</td>'
-: '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
+: '<td>' + cellHtml(c, u) + '</td>').join('') +
 '</tr>';
 return `
     <div class="pr-sub pr-sub--users">
@@ -2505,6 +2548,53 @@ return head + `
       </table>
     </div>`;
 }
+function helpViewHtml() {
+const sec = (title, items) => `
+    <div class="pr-help-sec">
+      <h5>${title}</h5>
+      <ul>${items.map((t) => '<li>' + t + '</li>').join('')}</ul>
+    </div>`;
+return `
+    <div class="pr-help">
+      <div class="pr-sub pr-sub--users"><b>ヘルプ</b><span class="pr-note">このツールの使い方(要点)</span></div>
+      <div class="pr-help-body">
+        ${sec('はじめに', [
+'このツールは SharePoint 上の「利用者の権限登録リスト」を管理する補助ツールです。',
+'まず<b>マスタ管理</b>で組織区分を登録 →「リストへ反映」、または<b>利用者一覧</b>の「CSVインポート」から始めると、必要なリストを自動作成します。',
+'更新作業はすべて SharePoint のリストに保存されます(このツールは表示と操作の補助)。',
+])}
+        ${sec('利用者一覧', [
+'登録状況の確認・編集の画面。行をクリックで編集、<b>新規登録</b>で追加。',
+'チェックして<b>一括変更</b>(変更区分・権限・システム削除)/<b>物理削除</b>。',
+'<b>CSVインポート</b>=現在の登録状況を一括取込(変更区分は空欄)。<b>Excel出力/取込</b>=' + esc(LABEL_L1) + 'ごとの表で入出力。',
+'<b>SPで開く</b>=SharePoint のリストを新しいタブで表示。',
+])}
+        ${sec('改廃依頼一覧', [
+'変更区分が「' + esc(NO_CHANGE) + '」以外＝実機への登録作業待ちの一覧。',
+'改廃ステータス(<b>作業待ち→改廃済み→結果確認済み</b>)をその場で変更、または選択して一括変更。',
+'「結果確認済み」にすると変更区分が空欄に戻り、一覧から外れます(=対応完了)。',
+])}
+        ${sec('実機差分チェック', [
+'実機の利用者情報CSV(取込と同じ形式)を読み込み、リストとの差分を表示(読み取り専用)。',
+'リスト未登録 / 実機未登録 / 差分あり(権限・' + esc(LABEL_L2) + '・会社名・在籍)を一覧します。',
+])}
+        ${sec('マスタ管理', [
+esc(LABEL_L1) + ' / ' + esc(LABEL_L2) + 'の登録・改名・並べ替え・有効無効。',
+'各' + esc(LABEL_L1) + 'の<b>鍵アイコン</b>で、その行を参照・更新できる SP 権限グループを割当。',
+'<b>リストへ反映</b>=マスタの内容(選択肢・チェック列・集計・権限)を利用者一覧へ一括適用。未反映の変更はバッジで表示され「破棄」も可能。',
+])}
+        ${sec('設定', [
+'<b>リスト名の接頭辞</b>(共通設定)=全員で共有。複数の運用を分けたいときに使用。',
+'<b>変更区分/権限の選択肢</b>・<b>管理者グループ</b>(全行にフルコントロール)を共通設定で編集。',
+'<b>操作ログ</b>=このツールから行った更新作業の記録を確認(参照は記録しません)。',
+])}
+        ${sec('運用の流れ(例)', [
+'マスタ登録 →「リストへ反映」→ CSVで現状取込 → 変更があった人の変更区分を設定 →' +
+' 改廃依頼一覧で実機作業を進め、ステータスを更新 → 結果確認済みで完了。',
+])}
+      </div>
+    </div>`;
+}
 async function ensureCommonList() {
 await ensureList(LIST_COMMON, 'WebReg の共通設定(全員で共有。リスト接頭辞など)');
 await ensureField(LIST_COMMON, 'Value', '値', { FieldTypeKind: 3 });
@@ -2707,6 +2797,13 @@ const back = el(`
                 詳細ログをブラウザのコンソールに出力(全RESTリクエスト。エラーは常時出力)</label>
               <span class="pr-note">通常運用は「SharePoint」を選べばサーバ類は一切不要です(dist を ドキュメント/webreg/ に配置)。
                 ローカル開発サーバと配信フォルダは開発時のみ使用。配信設定は次回のブックマークレット起動から反映されます。</span>
+              <div class="pr-field">
+                <label>利用OSS・ライセンス</label>
+                <div class="pr-oss">このツールは<b>外部のOSS・ライブラリを実行時に一切使用していません</b>(ランタイム依存ゼロ／
+                  ブラウザ標準APIのみ)。.xlsx の読み書き・ZIP 展開・CSV 解析・UI もすべて自前実装で、
+                  CDN 等から外部コードを取得することもありません。ビルドは Python 標準ライブラリのみ(外部パッケージ不要)。
+                  したがって第三者OSSのライセンス表記の対象はありません。</div>
+              </div>
             </div>
           </div>
         </div>
@@ -3001,10 +3098,6 @@ missingL2.push({ l1: t.org1, name: nm });
 return { targets, skippedPerm, retired, missingL1, missingL2, dupErrors };
 }
 function buildImportBody(state, t) {
-const notes = [];
-if (t.region) notes.push('地域区分: ' + t.region);
-if (t.firstBy || t.firstAt) notes.push('初回登録: ' + [t.firstBy, t.firstAt].filter(Boolean).join(' '));
-if (t.lastBy || t.lastAt) notes.push('最終更新: ' + [t.lastBy, t.lastAt].filter(Boolean).join(' '));
 const body = {
 Title: t.name,
 Company: t.company,
@@ -3012,7 +3105,6 @@ Email: t.email,
 ChangeType: '',
 Permission: t.permission,
 OrgLevel1: t.org1,
-Notes: notes.join('\n'),
 SystemDeleted: t.retired === true,
 L2All: false,
 };
@@ -4429,6 +4521,7 @@ function render() {
 const views = {
 users: usersView, master: masterView,
 reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
+help: () => helpViewHtml(),
 };
 const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
@@ -4449,6 +4542,7 @@ app.innerHTML = `
           ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
           ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
+          ${navItem('help', 'ヘルプ', '使い方')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>

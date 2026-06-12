@@ -625,6 +625,7 @@
     const views = {
       users: usersView, master: masterView,
       reqs: () => reqViewHtml(state), compare: () => compareViewHtml(state),
+      help: () => helpViewHtml(),
     };
     const navItem = (view, label, sub) => `
       <button class="pr-nav-item${state.view === view ? ' active' : ''}" data-act="nav" data-view="${view}">
@@ -646,6 +647,7 @@
           ${navItem('reqs', '改廃依頼一覧' + (reqPendingCount() ? '<span class="pr-navbadge">' + reqPendingCount() + '</span>' : ''), '実機への登録作業待ち')}
           ${navItem('compare', '実機差分チェック', '実機CSVとリストの差分')}
           ${navItem('master', 'マスタ管理', LABEL_L1 + ' / ' + LABEL_L2)}
+          ${navItem('help', 'ヘルプ', '使い方')}
         </nav>
         <div class="pr-main">${views[state.view]()}</div>
       </div>

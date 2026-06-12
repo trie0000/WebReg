@@ -88,12 +88,15 @@ function reqViewHtml(state) {
       WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
       '</select>';
   };
+  const cellHtml = (c, u) => c.key === 'changeType' ? ctChipHtml(u.ChangeType || '')
+    : c.key === 'permission' ? pmChipHtml(u.Permission || '')
+      : esc(reqCellText(state, c, u));
   const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
     '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
       (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
     cols.map((c) => c.key === 'status'
       ? '<td>' + statusCell(u) + '</td>'
-      : '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
+      : '<td>' + cellHtml(c, u) + '</td>').join('') +
     '</tr>';
 
   return `

@@ -42,6 +42,26 @@ function userColLabel(c) {
   return c.label;
 }
 
+// SPリストと同じ色のチップ HTML(変更区分/権限)。空欄はチップを出さない
+function ctChipHtml(v) {
+  if (!v) return '';
+  const cls = (v === '追加' || v === '新規') ? 'pr-spchip--add'
+    : (v === '更新' || v === '変更') ? 'pr-spchip--upd'
+      : (v === '削除') ? 'pr-spchip--del' : 'pr-spchip--gray';
+  return '<span class="pr-spchip ' + cls + '">' + esc(v) + '</span>';
+}
+function pmChipHtml(v) {
+  if (!v) return '';
+  const cls = (v === '更新者') ? 'pr-spchip--upd' : 'pr-spchip--gray';
+  return '<span class="pr-spchip ' + cls + '">' + esc(v) + '</span>';
+}
+// グリッドの表示用セル(変更区分/権限はチップ、それ以外は素のテキスト)
+function userCellDisplay(state, c, u) {
+  if (c.key === 'changeType') return ctChipHtml(u.ChangeType || '');
+  if (c.key === 'permission') return pmChipHtml(u.Permission || '');
+  return esc(userCellText(state, c, u));
+}
+
 function userCellText(state, c, u) {
   if (c.key === 'org2') return userOrg2Text(state, u);
   if (c.key === 'modified') {
@@ -120,7 +140,7 @@ function usersViewHtml(state) {
   const rowHtml = (u) => `
     <tr data-uid="${u.Id}" class="${u.SystemDeleted === true ? 'pr-udel' : ''}">
       <td class="pr-uchk"><input type="checkbox" data-usel="${u.Id}" aria-label="選択" ${selectedUserIds.has(u.Id) ? 'checked' : ''}></td>
-      ${cols.map((c) => '<td>' + (c.key === 'name' ? badgeHtml(u) : '') + esc(userCellText(state, c, u)) + '</td>').join('')}
+      ${cols.map((c) => '<td>' + (c.key === 'name' ? badgeHtml(u) : '') + userCellDisplay(state, c, u) + '</td>').join('')}
     </tr>`;
 
   return `

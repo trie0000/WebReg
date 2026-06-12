@@ -329,6 +329,28 @@ const css = `
 #${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
 #${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
 #${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
+/* ヘルプ画面 */
+#${ROOT_ID} .pr-help-body{ padding:var(--s-5) var(--gutter); overflow:auto; }
+#${ROOT_ID} .pr-help-sec{ margin-bottom:var(--s-7); }
+#${ROOT_ID} .pr-help-sec h5{
+  margin:0 0 var(--s-3); font-size:var(--fs-md); font-weight:700; color:var(--ink);
+  border-left:3px solid var(--accent); padding-left:var(--s-3);
+}
+#${ROOT_ID} .pr-help-sec ul{ margin:0; padding-left:var(--s-7); }
+#${ROOT_ID} .pr-help-sec li{ font-size:var(--fs-md); line-height:1.85; color:var(--ink-3); }
+#${ROOT_ID} .pr-help-sec li b{ color:var(--ink); font-weight:600; }
+#${ROOT_ID} .pr-oss{ font-size:var(--fs-sm); color:var(--ink-3); line-height:1.7; }
+
+/* 変更区分/権限の色チップ(SPリストと同じ色)。緑=追加 青=更新 赤=削除 灰=その他 */
+#${ROOT_ID} .pr-spchip{
+  display:inline-block; padding:1px var(--s-4); border-radius:999px;
+  font-size:var(--fs-sm); line-height:1.6; white-space:nowrap; color:#323130;
+}
+#${ROOT_ID} .pr-spchip--add{ background:rgb(202,240,204); }
+#${ROOT_ID} .pr-spchip--upd{ background:rgb(212,231,246); }
+#${ROOT_ID} .pr-spchip--del{ background:rgb(250,187,195); }
+#${ROOT_ID} .pr-spchip--gray{ background:rgb(229,229,229); }
+
 /* 改廃ステータスのチップ風インラインselect(その場で直接変更) */
 #${ROOT_ID} .pr-chipsel{
   height:26px !important; padding:0 var(--s-4) !important;

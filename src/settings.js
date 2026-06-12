@@ -79,6 +79,13 @@ function openSettingsModalInner(state, resolve) {
                 詳細ログをブラウザのコンソールに出力(全RESTリクエスト。エラーは常時出力)</label>
               <span class="pr-note">通常運用は「SharePoint」を選べばサーバ類は一切不要です(dist を ドキュメント/webreg/ に配置)。
                 ローカル開発サーバと配信フォルダは開発時のみ使用。配信設定は次回のブックマークレット起動から反映されます。</span>
+              <div class="pr-field">
+                <label>利用OSS・ライセンス</label>
+                <div class="pr-oss">このツールは<b>外部のOSS・ライブラリを実行時に一切使用していません</b>(ランタイム依存ゼロ／
+                  ブラウザ標準APIのみ)。.xlsx の読み書き・ZIP 展開・CSV 解析・UI もすべて自前実装で、
+                  CDN 等から外部コードを取得することもありません。ビルドは Python 標準ライブラリのみ(外部パッケージ不要)。
+                  したがって第三者OSSのライセンス表記の対象はありません。</div>
+              </div>
             </div>
           </div>
         </div>

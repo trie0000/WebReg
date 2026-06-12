@@ -276,8 +276,12 @@ function openL1PermModal(state, l1) {
     (async () => {
       try {
         groups = await fetchSiteGroups();
+        // 既に付与済みのグループをリストの先頭に並べる(残りは名前順のまま)
+        const assigned = new Set(permGroupIdsOf(l1));
+        const sorted = [...groups].sort((a, b) =>
+          (assigned.has(b.Id) ? 1 : 0) - (assigned.has(a.Id) ? 1 : 0));
         back.querySelector('[data-pglist="g"]').innerHTML =
-          permChecksHtml('g', groups, permGroupIdsOf(l1));
+          permChecksHtml('g', sorted, [...assigned]);
         back.querySelector('[data-mact="ok"]').disabled = false;
       } catch (e) {
         back.querySelectorAll('.pr-checks--perm').forEach((p) => {
