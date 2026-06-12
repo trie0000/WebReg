@@ -289,35 +289,39 @@ function buildXlsxImportPlan(state, sheets) {
   if (!found) throw new Error('このツールのエクスポート形式のシート(A1が「' + XLSX_LBL_L1 + '」)が見つかりません');
   if (!entries.length && !warnings.length) throw new Error('取込対象の利用者がいません(利用者名の行が空)');
 
-  // 「更新内容」で振り分け。更新/削除はメールアドレス(無ければ利用者名)で既存行と突合
-  const byEmail = new Map(state.users.filter((u) => u.Email).map((u) => [u.Email.toLowerCase(), u]));
-  const byName = new Map(state.users.map((u) => [u.Title, u]));
+  // 「更新内容」で振り分け。更新/削除は「組織区分1+メール、無ければ組織区分1+氏名」で既存行と突合。
+  // 組織区分1が違えば別人(別行)として扱い、重複・突合の対象外
+  const idx = buildUserIndex(state.users);
   const adds = [];
   const updates = [];
   const deletes = [];
   const notFound = [];
   let skipped = 0;
-  const seenKeys = new Set(); // ファイル内の重複(同じメール/利用者名の列)検知
+  const seenEmail = new Set(); // ファイル内の重複検知(組織区分1ごと)
+  const seenName = new Set();
   for (const e of entries) {
     if (e.action === '追加' || e.action === '更新' || e.action === '削除') {
-      const key = (e.email || '').toLowerCase() || e.name;
-      if (seenKeys.has(key)) {
+      const ek = uEmailKey(e.l1, e.email);
+      const nk = uNameKey(e.l1, e.name);
+      if ((ek && seenEmail.has(ek)) || seenName.has(nk)) {
         warnings.push({ name: e.name, where: e.l1,
-          reasons: ['同じメールアドレス(または利用者名)の列がファイル内に複数あります'] });
+          reasons: ['同じ' + LABEL_L1 + '内で' + (ek && seenEmail.has(ek) ? '同じメールアドレス' : '同じ利用者名') +
+            'の列がファイル内に複数あります'] });
         continue;
       }
-      seenKeys.add(key);
+      if (ek) seenEmail.add(ek);
+      seenName.add(nk);
     }
     if (e.action === '追加') {
-      const dup = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
+      const dup = findExistingUser(idx, e.l1, e.email, e.name);
       if (dup) {
         warnings.push({ name: e.name, where: e.l1,
-          reasons: ['既存の利用者(' + dup.Title + ')と重複します。更新する場合は「更新」を選んでください'] });
+          reasons: ['同じ' + LABEL_L1 + 'に既存の利用者(' + dup.Title + ')と重複します。更新する場合は「更新」を選んでください'] });
         continue;
       }
       adds.push(e);
     } else if (e.action === '更新' || e.action === '削除') {
-      const u = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
+      const u = findExistingUser(idx, e.l1, e.email, e.name);
       if (!u) notFound.push(e);
       else if (e.action === '削除') {
         if (u.SystemDeleted === true) skipped++;

@@ -234,7 +234,7 @@
       return;
     }
     if (!plan.targets.length) {
-      toast('warn', '取り込み対象の行がありません(権限が対象外、または空データ)');
+      toast('warn', '取り込み対象の行がありません(権限が対象外、空データ、または' + LABEL_L1 + '内の重複)');
       return;
     }
     const ok = await openImportConfirmModal(plan);
@@ -287,8 +287,9 @@
         await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
         state.choices = { changeType: state.choices.changeType, permission: merged };
       }
-      // 3) 行のアップサート(キー: メールアドレス、無ければ氏名)
-      const byKey = new Map(state.users.map((u) => [((u.Email || '').toLowerCase()) || u.Title, u]));
+      // 3) 行のアップサート(突合は「組織区分1+メール、無ければ組織区分1+氏名」。
+      //    組織区分1が違えば別人として別行に登録する)
+      const idx = buildUserIndex(state.users);
       let added = 0;
       let updated = 0;
       const rowErrors = [];
@@ -299,8 +300,7 @@
         setStatus('利用者を取込中… (' + done + '/' + plan.targets.length + ')');
         try {
           const body = buildImportBody(state, t);
-          const key = (t.email || '').toLowerCase() || t.name;
-          const exist = byKey.get(key);
+          const exist = findExistingUser(idx, t.org1, t.email, t.name);
           if (exist) {
             // 取込内容に無い既存の組織区分2チェックはクリア
             for (const k of Object.keys(exist)) {
@@ -327,7 +327,8 @@
         }
       }
       toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
-        (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : ''));
+        (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : '') +
+        (plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''));
       if (rowErrors.length) {
         toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
           rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
