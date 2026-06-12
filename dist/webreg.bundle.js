@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-8615c9b7" !== 'undefined' ? "0.1.0-8615c9b7" : 'dev';
+const BUILD = typeof "0.1.0-c2b8f4d8" !== 'undefined' ? "0.1.0-c2b8f4d8" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -639,6 +639,34 @@ return summary;
 async function applyPermissionsAll(state, log) {
 const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
 return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
+}
+async function applyPermissionsChanged(state, fp, adminIds, log) {
+const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
+let targetTitles = null;
+if (permsSnap) {
+const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids.slice().sort((a, b) => a - b))]));
+const oldAdmins = JSON.stringify((permsSnap.admins || []).slice().sort((a, b) => a - b));
+const curAdmins = JSON.stringify((adminIds || []).slice().sort((a, b) => a - b));
+if (oldAdmins === curAdmins) {
+const titles = new Set();
+for (const x of state.l1) {
+const cur = JSON.stringify(permGroupIdsOf(x).slice().sort((a, b) => a - b));
+if ((oldG.get(x.Id) || '[]') !== cur) titles.add(x.Title);
+}
+targetTitles = titles;
+}
+}
+const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+const targets = (targetTitles === null ? items
+: items.filter((it) => targetTitles.has(it.OrgLevel1 || '')))
+.map((it) => ({ id: it.Id, l1: it.OrgLevel1 }));
+if (!targets.length) {
+return { applied: 0, adminOnly: 0, errors: [], scanned: items.length, skipped: true };
+}
+const r = await applyPermissionsToItems(state, targets, log);
+r.scanned = items.length;
+r.skipped = false;
+return r;
 }
 async function applyPermAfterWrite(state, itemId, l1Title) {
 if (!hasAnyPermConfig(state)) return;
@@ -3427,7 +3455,14 @@ if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
 state.syncDiff = null;
 state.syncFp = null;
 if (state.usersReady) {
-const ss = await loadSyncState();
+let ss = await loadSyncState();
+if (!ss.fp || typeof ss.fp.master !== 'object') {
+try {
+await saveSyncFp('master', computeMasterSnap(state));
+await saveSyncFp('perms', computePermsSnap(state, ss.adminIds));
+ss = await loadSyncState();
+} catch { }
+}
 state.adminGroupIds = ss.adminIds;
 state.syncFp = ss.fp;
 state.syncDiff = diffSyncState(state, ss.adminIds, ss.fp);
@@ -3970,15 +4005,19 @@ LABEL_L1 + 'の行は管理者のみ)。' : ''),
 okLabel: '反映する',
 });
 if (!ok) return;
+const prevFp = state.syncFp;
 run('リストへ反映', async () => {
 const s = await syncMastersToUserList(state, setStatus);
 await saveSyncFp('master', computeMasterSnap(state));
+let permMsg = '';
 if (permsConfigured) {
-const ps = await applyPermissionsAll(state, setStatus);
+const ps = await applyPermissionsChanged(state, prevFp, admins, setStatus);
 if (ps.errors.length) {
 toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
 } else {
 await saveSyncFp('perms', computePermsSnap(state, admins));
+permMsg = ps.skipped ? ' / 権限は変更なし(再適用なし)'
+: ' / 行のアクセス権を ' + (ps.applied + ps.adminOnly) + '件に適用';
 }
 } else {
 await saveSyncFp('perms', computePermsSnap(state, admins));
@@ -3987,7 +4026,7 @@ await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
 (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
-(permsConfigured ? ' / 行のアクセス権も適用済み' : ''));
+permMsg);
 if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
 if (s.org2Migrated) toast('warn', s.org2Migrated);
 if (s.org2Mode) state.org2Mode = s.org2Mode;

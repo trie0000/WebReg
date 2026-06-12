@@ -89,7 +89,17 @@
     state.syncDiff = null;
     state.syncFp = null;
     if (state.usersReady) {
-      const ss = await loadSyncState();
+      let ss = await loadSyncState();
+      // スナップショットが未記録/旧形式(masterが文字列等)なら、現在のマスタを
+      // ベースラインとして一度だけ記録する。これで以後の編集が「未反映」として
+      // 検知・破棄できるようになる(旧バージョンからの移行時の救済)
+      if (!ss.fp || typeof ss.fp.master !== 'object') {
+        try {
+          await saveSyncFp('master', computeMasterSnap(state));
+          await saveSyncFp('perms', computePermsSnap(state, ss.adminIds));
+          ss = await loadSyncState();
+        } catch { /* 記録に失敗してもバナー表示は続行 */ }
+      }
       state.adminGroupIds = ss.adminIds;
       state.syncFp = ss.fp;
       state.syncDiff = diffSyncState(state, ss.adminIds, ss.fp);
@@ -689,16 +699,21 @@
         okLabel: '反映する',
       });
       if (!ok) return;
+      const prevFp = state.syncFp; // 反映前のスナップショット(権限の差分適用に使う)
       run('リストへ反映', async () => {
         const s = await syncMastersToUserList(state, setStatus);
         await saveSyncFp('master', computeMasterSnap(state));
-        // 権限グループ割当があれば、行レベル権限もここで適用する(ボタンを分けない)
+        // 権限グループ割当があれば、行レベル権限もここで適用する(ボタンを分けない)。
+        // 全件ではなく、前回反映から権限設定が変わった行だけに反映する
+        let permMsg = '';
         if (permsConfigured) {
-          const ps = await applyPermissionsAll(state, setStatus);
+          const ps = await applyPermissionsChanged(state, prevFp, admins, setStatus);
           if (ps.errors.length) {
             toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
           } else {
             await saveSyncFp('perms', computePermsSnap(state, admins));
+            permMsg = ps.skipped ? ' / 権限は変更なし(再適用なし)'
+              : ' / 行のアクセス権を ' + (ps.applied + ps.adminOnly) + '件に適用';
           }
         } else {
           await saveSyncFp('perms', computePermsSnap(state, admins));
@@ -707,7 +722,7 @@
         toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
           LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
           (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
-          (permsConfigured ? ' / 行のアクセス権も適用済み' : ''));
+          permMsg);
         if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
         if (s.org2Migrated) toast('warn', s.org2Migrated);
         if (s.org2Mode) state.org2Mode = s.org2Mode;

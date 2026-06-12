@@ -177,10 +177,45 @@ async function applyPermissionsToItems(state, targets, log) {
   return summary;
 }
 
-// 全アイテムへ反映(「権限を反映」ボタン用)
+// 全アイテムへ反映(初回や全面再適用用)
 async function applyPermissionsAll(state, log) {
   const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
   return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
+}
+
+// 前回反映時のスナップショットと比べ、権限設定が変わった行だけに反映する。
+// 「リストへ反映」でマスタ名や並びだけ変えたときに全件更新が走らないようにする。
+//   - 管理者グループが変わった or スナップショット無し → 全行に適用
+//   - それ以外 → 割当が変わった組織区分1の行だけに適用(変化なしなら何もしない)
+// 戻り値は applyPermissionsToItems と同じ + {scanned, skipped:true(一切適用せず)}
+async function applyPermissionsChanged(state, fp, adminIds, log) {
+  const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
+  let targetTitles = null; // null = 全行
+  if (permsSnap) {
+    const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids.slice().sort((a, b) => a - b))]));
+    const oldAdmins = JSON.stringify((permsSnap.admins || []).slice().sort((a, b) => a - b));
+    const curAdmins = JSON.stringify((adminIds || []).slice().sort((a, b) => a - b));
+    if (oldAdmins === curAdmins) {
+      // 管理者据え置き → 割当が変わった組織区分1だけ
+      const titles = new Set();
+      for (const x of state.l1) {
+        const cur = JSON.stringify(permGroupIdsOf(x).slice().sort((a, b) => a - b));
+        if ((oldG.get(x.Id) || '[]') !== cur) titles.add(x.Title);
+      }
+      targetTitles = titles;
+    }
+  }
+  const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+  const targets = (targetTitles === null ? items
+    : items.filter((it) => targetTitles.has(it.OrgLevel1 || '')))
+    .map((it) => ({ id: it.Id, l1: it.OrgLevel1 }));
+  if (!targets.length) {
+    return { applied: 0, adminOnly: 0, errors: [], scanned: items.length, skipped: true };
+  }
+  const r = await applyPermissionsToItems(state, targets, log);
+  r.scanned = items.length;
+  r.skipped = false;
+  return r;
 }
 
 // 登録/編集直後の1行に適用(割当が1件も無ければ何もしない)。失敗は警告どまり
