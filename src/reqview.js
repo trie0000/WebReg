@@ -4,6 +4,7 @@
 
 const REQS_GRID_KEY = 'reqs';
 const reqFilter = { q: '', hideVerified: true };
+const selectedReqIds = new Set(); // 改廃依頼の選択(再描画を跨いで保持)
 
 // 改廃依頼の対象: 変更区分が設定済みで「変更なし」でない行(=実機側の作業が必要)
 const isReqTarget = (u) => {
@@ -62,11 +63,16 @@ function reqViewHtml(state) {
     return '<div class="pr-hero"><h4>「' + esc(LIST_USERS) + '」リストがまだありません</h4>' +
       '<p>利用者一覧で登録するとここに改廃依頼が表示されます。</p></div>';
   }
+  // 表示外の行の選択は破棄(全件選択判定が正しくなるように)
   const list = visibleReqs(state);
+  const listIds = new Set(list.map((u) => u.Id));
+  for (const id of [...selectedReqIds]) if (!listIds.has(id)) selectedReqIds.delete(id);
+
   const order = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
   const cols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
   const sort = gridSort(REQS_GRID_KEY, 'modified');
   const total = state.users.filter(isReqTarget).length;
+  const sel = selectedReqIds.size;
 
   const thHtml = cols.map((c) => {
     const active = sort.by === c.key;
@@ -75,22 +81,27 @@ function reqViewHtml(state) {
       esc(reqColLabel(c)) + arrow + '</th>';
   }).join('');
 
-  const statusCell = (u) => {
+  // ステータスは色分けチップで表示(編集は選択して一括変更)
+  const statusChip = (u) => {
     const cur = reqStatusOf(u);
-    return '<select class="pr-input pr-rst ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
-      WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
-      '</select>';
+    return '<span class="pr-chip ' + reqStatusClass(cur) + '">' + esc(cur) + '</span>';
   };
   const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
+    '<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
+      (selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
     cols.map((c) => c.key === 'status'
-      ? '<td>' + statusCell(u) + '</td>'
+      ? '<td>' + statusChip(u) + '</td>'
       : '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
     '</tr>';
 
   return `
     <div class="pr-sub pr-sub--users">
-      <b>改廃依頼一覧</b><span class="pr-count">${list.length}件${list.length !== total ? ' / 対象' + total + '件' : ''}</span>
-      <span class="pr-note">変更区分が「${esc(NO_CHANGE)}」以外＝実機への登録作業待ち</span>
+      ${sel
+        ? `<b>選択中 ${sel}件</b>
+           <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="req-bulk-status">ステータス一括変更</button>
+           <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="req-clear-sel">選択解除</button>`
+        : `<b>改廃依頼一覧</b><span class="pr-count">${list.length}件${list.length !== total ? ' / 対象' + total + '件' : ''}</span>
+           <span class="pr-note">変更区分が「${esc(NO_CHANGE)}」以外＝実機への登録作業待ち</span>`}
       <span style="flex:1"></span>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="SPリストを新しいタブで開く">${ico('external')}SPで開く</button>
     </div>
@@ -101,16 +112,20 @@ function reqViewHtml(state) {
     <div class="pr-rows">
       <table class="pr-utable" data-grid="reqs">
         <colgroup>
+          <col style="width:34px">
           ${cols.map((c) => '<col style="width:' + gridColWidth(REQS_GRID_KEY, c.key, c.w) + '">').join('')}
         </colgroup>
-        <thead><tr>${thHtml}</tr></thead>
+        <thead><tr>
+          <th class="pr-uchk"><input type="checkbox" data-rsel-all aria-label="すべて選択" ${list.length && list.every((u) => selectedReqIds.has(u.Id)) ? 'checked' : ''}></th>
+          ${thHtml}
+        </tr></thead>
         <tbody>${list.map(rowHtml).join('') ||
-          '<tr><td colspan="' + cols.length + '" class="pr-empty">改廃依頼はありません</td></tr>'}</tbody>
+          '<tr><td colspan="' + (cols.length + 1) + '" class="pr-empty">改廃依頼はありません</td></tr>'}</tbody>
       </table>
     </div>`;
 }
 
-// ctx: { rerender, onEdit(item), onStatusChange(id, status) }
+// ctx: { rerender, onEdit(item) }
 function reqAfterRender(app, state, ctx) {
   const table = app.querySelector('.pr-utable[data-grid="reqs"]');
   if (!table) return;
@@ -118,8 +133,8 @@ function reqAfterRender(app, state, ctx) {
   const orderedCols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
   attachGrid(table, {
     tableKey: REQS_GRID_KEY,
-    colKeys: order,
-    defaults: orderedCols.map((c) => c.w),
+    colKeys: [null].concat(order), // 先頭はチェックボックス列(操作不可)
+    defaults: ['34px'].concat(orderedCols.map((c) => c.w)),
     onReorder: (fromKey, toKey) => {
       if (fromKey && toKey) {
         const cur = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
@@ -132,6 +147,7 @@ function reqAfterRender(app, state, ctx) {
 
   table.querySelector('thead').addEventListener('click', (e) => {
     if (table.dataset.dragJustEnded) return;
+    if (e.target.closest('[data-rsel-all]')) return;
     const th = e.target.closest('th[data-col]');
     if (!th) return;
     const s = gridSort(REQS_GRID_KEY, 'modified');
@@ -152,18 +168,71 @@ function reqAfterRender(app, state, ctx) {
     ctx.rerender();
   });
 
-  // ステータスのインライン変更(select)。行クリック(編集)とは分離する
-  table.addEventListener('change', (e) => {
-    const sel = e.target.closest('[data-reqstatus]');
-    if (!sel) return;
-    ctx.onStatusChange(+sel.dataset.reqstatus, sel.value);
-  });
+  // 選択(チェックボックス)と行クリック(編集)を分離する
   table.addEventListener('click', (e) => {
-    if (e.target.closest('[data-reqstatus]')) return; // ステータス操作は編集を開かない
+    const chkAll = e.target.closest('[data-rsel-all]');
+    if (chkAll) {
+      e.stopPropagation();
+      const list = visibleReqs(state);
+      const all = list.length && list.every((u) => selectedReqIds.has(u.Id));
+      list.forEach((u) => { all ? selectedReqIds.delete(u.Id) : selectedReqIds.add(u.Id); });
+      ctx.rerender();
+      return;
+    }
+    const chk = e.target.closest('[data-rsel]');
+    if (chk) {
+      e.stopPropagation();
+      const id = +chk.dataset.rsel;
+      chk.checked ? selectedReqIds.add(id) : selectedReqIds.delete(id);
+      ctx.rerender();
+      return;
+    }
     const tr = e.target.closest('tr[data-uid]');
     if (!tr) return;
     if (window.getSelection && String(window.getSelection())) return;
     const item = state.users.find((u) => u.Id === +tr.dataset.uid);
     if (item) ctx.onEdit(item);
+  });
+}
+
+// ステータス一括変更モーダル。resolve: status文字列 | null
+function openReqStatusModal(count) {
+  return new Promise((resolve) => {
+    const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal" role="dialog" aria-modal="true" aria-label="ステータス一括変更">
+          <h4>改廃ステータスの一括変更 — 選択中 ${count}件</h4>
+          <div class="pr-field"><label>変更後のステータス</label>
+            <select class="pr-input" id="rq-status">${
+              WORK_STATUS.map((s) => '<option>' + esc(s) + '</option>').join('')}</select></div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">適用する</button>
+          </div>
+        </div>
+      </div>`);
+    const done = (val) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      resolve(val);
+    };
+    let downOnBack = false;
+    back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+    back.addEventListener('click', (e) => {
+      if (e.target === back) {
+        if (downOnBack) done(null);
+        return;
+      }
+      const b = e.target.closest('[data-mact]');
+      if (b) (b.dataset.mact === 'ok' ? done(back.querySelector('#rq-status').value) : done(null));
+    });
+    const onKey = (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) done(back.querySelector('#rq-status').value);
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.getElementById(ROOT_ID).appendChild(back);
+    back.querySelector('#rq-status').focus();
   });
 }

@@ -320,11 +320,15 @@ const css = `
 }
 #${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
 
-/* ---- 改廃ステータス(インラインselect) ---- */
-#${ROOT_ID} .pr-rst{ height:26px !important; min-height:26px !important; padding:0 var(--s-3) !important; font-size:var(--fs-sm) !important; border-radius:var(--r-2) !important; }
-#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.14) !important; color:var(--warn) !important; }
-#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft) !important; color:var(--accent-strong) !important; }
-#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3) !important; color:var(--ink-3) !important; }
+/* ---- 改廃ステータス(色分けチップ) ---- */
+#${ROOT_ID} .pr-chip{
+  display:inline-block; padding:2px var(--s-4); border-radius:999px;
+  font-size:var(--fs-sm); font-weight:600; line-height:1.5; white-space:nowrap;
+  border:1px solid transparent;
+}
+#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
+#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
+#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
 
 /* ---- 実機差分チェックの区分バッジ ---- */
 #${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }

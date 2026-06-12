@@ -47,7 +47,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-117470a2" !== 'undefined' ? "0.1.0-117470a2" : 'dev';
+const BUILD = typeof "0.1.0-b7599e4e" !== 'undefined' ? "0.1.0-b7599e4e" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -1239,11 +1239,15 @@ const css = `
   background:rgba(196,127,28,.14); color:var(--warn);
 }
 #${ROOT_ID} .pr-stale--perm{ background:var(--accent-soft); color:var(--accent-strong); }
-/* ---- 改廃ステータス(インラインselect) ---- */
-#${ROOT_ID} .pr-rst{ height:26px !important; min-height:26px !important; padding:0 var(--s-3) !important; font-size:var(--fs-sm) !important; border-radius:var(--r-2) !important; }
-#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.14) !important; color:var(--warn) !important; }
-#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft) !important; color:var(--accent-strong) !important; }
-#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3) !important; color:var(--ink-3) !important; }
+/* ---- 改廃ステータス(色分けチップ) ---- */
+#${ROOT_ID} .pr-chip{
+  display:inline-block; padding:2px var(--s-4); border-radius:999px;
+  font-size:var(--fs-sm); font-weight:600; line-height:1.5; white-space:nowrap;
+  border:1px solid transparent;
+}
+#${ROOT_ID} .pr-rst--wait{ background:rgba(196,127,28,.16); color:var(--warn); border-color:rgba(196,127,28,.35); }
+#${ROOT_ID} .pr-rst--done{ background:var(--accent-soft); color:var(--accent-strong); border-color:rgba(122,138,120,.4); }
+#${ROOT_ID} .pr-rst--verified{ background:var(--paper-3); color:var(--ink-3); border-color:var(--line); }
 /* ---- 実機差分チェックの区分バッジ ---- */
 #${ROOT_ID} .pr-cmp{ display:inline-block; padding:1px var(--s-3); border-radius:var(--r-2); font-size:var(--fs-xs); font-weight:500; white-space:nowrap; }
 #${ROOT_ID} .pr-cmp--diff{ background:rgba(196,127,28,.14); color:var(--warn); }
@@ -2114,6 +2118,7 @@ back.querySelector('#bk-ct').focus();
 }
 const REQS_GRID_KEY = 'reqs';
 const reqFilter = { q: '', hideVerified: true };
+const selectedReqIds = new Set();
 const isReqTarget = (u) => {
 const ct = (u.ChangeType || '').trim();
 return !!ct && ct !== NO_CHANGE;
@@ -2164,31 +2169,38 @@ return '<div class="pr-hero"><h4>「' + esc(LIST_USERS) + '」リストがまだ
 '<p>利用者一覧で登録するとここに改廃依頼が表示されます。</p></div>';
 }
 const list = visibleReqs(state);
+const listIds = new Set(list.map((u) => u.Id));
+for (const id of [...selectedReqIds]) if (!listIds.has(id)) selectedReqIds.delete(id);
 const order = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
 const cols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
 const sort = gridSort(REQS_GRID_KEY, 'modified');
 const total = state.users.filter(isReqTarget).length;
+const sel = selectedReqIds.size;
 const thHtml = cols.map((c) => {
 const active = sort.by === c.key;
 const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
 return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
 esc(reqColLabel(c)) + arrow + '</th>';
 }).join('');
-const statusCell = (u) => {
+const statusChip = (u) => {
 const cur = reqStatusOf(u);
-return '<select class="pr-input pr-rst ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
-WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
-'</select>';
+return '<span class="pr-chip ' + reqStatusClass(cur) + '">' + esc(cur) + '</span>';
 };
 const rowHtml = (u) => '<tr data-uid="' + u.Id + '" class="' + (u.SystemDeleted === true ? 'pr-udel' : '') + '">' +
+'<td class="pr-uchk"><input type="checkbox" data-rsel="' + u.Id + '" aria-label="選択" ' +
+(selectedReqIds.has(u.Id) ? 'checked' : '') + '></td>' +
 cols.map((c) => c.key === 'status'
-? '<td>' + statusCell(u) + '</td>'
+? '<td>' + statusChip(u) + '</td>'
 : '<td>' + esc(reqCellText(state, c, u)) + '</td>').join('') +
 '</tr>';
 return `
     <div class="pr-sub pr-sub--users">
-      <b>改廃依頼一覧</b><span class="pr-count">${list.length}件${list.length !== total ? ' / 対象' + total + '件' : ''}</span>
-      <span class="pr-note">変更区分が「${esc(NO_CHANGE)}」以外＝実機への登録作業待ち</span>
+      ${sel
+? `<b>選択中 ${sel}件</b>
+           <button class="pr-btn pr-btn--sm pr-btn--primary" data-act="req-bulk-status">ステータス一括変更</button>
+           <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="req-clear-sel">選択解除</button>`
+: `<b>改廃依頼一覧</b><span class="pr-count">${list.length}件${list.length !== total ? ' / 対象' + total + '件' : ''}</span>
+           <span class="pr-note">変更区分が「${esc(NO_CHANGE)}」以外＝実機への登録作業待ち</span>`}
       <span style="flex:1"></span>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="SPリストを新しいタブで開く">${ico('external')}SPで開く</button>
     </div>
@@ -2199,11 +2211,15 @@ return `
     <div class="pr-rows">
       <table class="pr-utable" data-grid="reqs">
         <colgroup>
+          <col style="width:34px">
           ${cols.map((c) => '<col style="width:' + gridColWidth(REQS_GRID_KEY, c.key, c.w) + '">').join('')}
         </colgroup>
-        <thead><tr>${thHtml}</tr></thead>
+        <thead><tr>
+          <th class="pr-uchk"><input type="checkbox" data-rsel-all aria-label="すべて選択" ${list.length && list.every((u) => selectedReqIds.has(u.Id)) ? 'checked' : ''}></th>
+          ${thHtml}
+        </tr></thead>
         <tbody>${list.map(rowHtml).join('') ||
-'<tr><td colspan="' + cols.length + '" class="pr-empty">改廃依頼はありません</td></tr>'}</tbody>
+'<tr><td colspan="' + (cols.length + 1) + '" class="pr-empty">改廃依頼はありません</td></tr>'}</tbody>
       </table>
     </div>`;
 }
@@ -2214,8 +2230,8 @@ const order = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
 const orderedCols = order.map((k) => REQ_COLS.find((c) => c.key === k)).filter(Boolean);
 attachGrid(table, {
 tableKey: REQS_GRID_KEY,
-colKeys: order,
-defaults: orderedCols.map((c) => c.w),
+colKeys: [null].concat(order),
+defaults: ['34px'].concat(orderedCols.map((c) => c.w)),
 onReorder: (fromKey, toKey) => {
 if (fromKey && toKey) {
 const cur = gridResolveOrder(REQS_GRID_KEY, REQ_COLS.map((c) => c.key));
@@ -2227,6 +2243,7 @@ ctx.rerender();
 });
 table.querySelector('thead').addEventListener('click', (e) => {
 if (table.dataset.dragJustEnded) return;
+if (e.target.closest('[data-rsel-all]')) return;
 const th = e.target.closest('th[data-col]');
 if (!th) return;
 const s = gridSort(REQS_GRID_KEY, 'modified');
@@ -2245,18 +2262,69 @@ app.querySelector('#pr-rfilter-verified').addEventListener('change', (e) => {
 reqFilter.hideVerified = e.target.checked;
 ctx.rerender();
 });
-table.addEventListener('change', (e) => {
-const sel = e.target.closest('[data-reqstatus]');
-if (!sel) return;
-ctx.onStatusChange(+sel.dataset.reqstatus, sel.value);
-});
 table.addEventListener('click', (e) => {
-if (e.target.closest('[data-reqstatus]')) return;
+const chkAll = e.target.closest('[data-rsel-all]');
+if (chkAll) {
+e.stopPropagation();
+const list = visibleReqs(state);
+const all = list.length && list.every((u) => selectedReqIds.has(u.Id));
+list.forEach((u) => { all ? selectedReqIds.delete(u.Id) : selectedReqIds.add(u.Id); });
+ctx.rerender();
+return;
+}
+const chk = e.target.closest('[data-rsel]');
+if (chk) {
+e.stopPropagation();
+const id = +chk.dataset.rsel;
+chk.checked ? selectedReqIds.add(id) : selectedReqIds.delete(id);
+ctx.rerender();
+return;
+}
 const tr = e.target.closest('tr[data-uid]');
 if (!tr) return;
 if (window.getSelection && String(window.getSelection())) return;
 const item = state.users.find((u) => u.Id === +tr.dataset.uid);
 if (item) ctx.onEdit(item);
+});
+}
+function openReqStatusModal(count) {
+return new Promise((resolve) => {
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal" role="dialog" aria-modal="true" aria-label="ステータス一括変更">
+          <h4>改廃ステータスの一括変更 — 選択中 ${count}件</h4>
+          <div class="pr-field"><label>変更後のステータス</label>
+            <select class="pr-input" id="rq-status">${
+WORK_STATUS.map((s) => '<option>' + esc(s) + '</option>').join('')}</select></div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">適用する</button>
+          </div>
+        </div>
+      </div>`);
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) {
+if (downOnBack) done(null);
+return;
+}
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? done(back.querySelector('#rq-status').value) : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) done(back.querySelector('#rq-status').value);
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+back.querySelector('#rq-status').focus();
 });
 }
 function spOrg2Set(state, u) {
@@ -4140,18 +4208,23 @@ app.innerHTML = `
 if (state.view === 'users') {
 usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
 } else if (state.view === 'reqs') {
-reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
+reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
 }
 }
 function reqPendingCount() {
 if (!state.usersReady) return 0;
 return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
 }
-function userStatusChange(id, status) {
-run('ステータス更新', async () => {
+async function reqBulkStatusFlow() {
+const ids = [...selectedReqIds];
+if (!ids.length) return;
+const status = await openReqStatusModal(ids.length);
+if (!status) return;
+run('ステータス一括変更', async () => {
 await ensureWorkStatusColumn();
-await updateItem(LIST_USERS, id, { WorkStatus: status });
+for (const id of ids) await updateItem(LIST_USERS, id, { WorkStatus: status });
 await reload();
+toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました');
 });
 }
 async function reload() {
@@ -4213,6 +4286,8 @@ if (act === 'compare-import') { compareImportFlow(); return; }
 if (act === 'user-bulk') { userBulkFlow(); return; }
 if (act === 'user-del-selected') { userDeleteFlow(); return; }
 if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
+if (act === 'req-bulk-status') { reqBulkStatusFlow(); return; }
+if (act === 'req-clear-sel') { selectedReqIds.clear(); render(); return; }
 if (act === 'sync-users') {
 const activeL1 = state.l1.filter((x) => x.Active !== false);
 const activeL1Ids = new Set(activeL1.map((x) => x.Id));

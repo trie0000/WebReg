@@ -637,7 +637,7 @@
     if (state.view === 'users') {
       usersAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
     } else if (state.view === 'reqs') {
-      reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow, onStatusChange: userStatusChange });
+      reqAfterRender(app, state, { rerender: render, onEdit: userEditFlow });
     }
   }
 
@@ -647,12 +647,17 @@
     return state.users.filter((u) => isReqTarget(u) && reqStatusOf(u) !== WORK_STATUS_DONE).length;
   }
 
-  // 改廃ステータスのインライン変更(列が未作成の既存リストでも動くよう先に確保)
-  function userStatusChange(id, status) {
-    run('ステータス更新', async () => {
+  // 改廃ステータスの一括変更(選択行へ。列が未作成の既存リストでも動くよう先に確保)
+  async function reqBulkStatusFlow() {
+    const ids = [...selectedReqIds];
+    if (!ids.length) return;
+    const status = await openReqStatusModal(ids.length);
+    if (!status) return;
+    run('ステータス一括変更', async () => {
       await ensureWorkStatusColumn();
-      await updateItem(LIST_USERS, id, { WorkStatus: status });
+      for (const id of ids) await updateItem(LIST_USERS, id, { WorkStatus: status });
       await reload();
+      toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました');
     });
   }
 
@@ -722,6 +727,8 @@
     if (act === 'user-bulk') { userBulkFlow(); return; }
     if (act === 'user-del-selected') { userDeleteFlow(); return; }
     if (act === 'user-clear-sel') { selectedUserIds.clear(); render(); return; }
+    if (act === 'req-bulk-status') { reqBulkStatusFlow(); return; }
+    if (act === 'req-clear-sel') { selectedReqIds.clear(); render(); return; }
 
     if (act === 'sync-users') {
       const activeL1 = state.l1.filter((x) => x.Active !== false);
