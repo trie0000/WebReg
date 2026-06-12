@@ -73,6 +73,8 @@ function xlsxSheetForL1(state, l1) {
     validations: [
       { sqref: 'B5:' + last + '5', list: state.choices.permission },
       { sqref: 'B6:' + last + '6', list: XLSX_ACTIONS },
+      // チェック欄(すべて行 + 組織区分2の各行)も ✓ のリスト選択(空欄に戻すのは Delete)
+      { sqref: 'B7:' + last + (7 + l2list.length), list: [XLSX_CHECK] },
     ],
   };
 }

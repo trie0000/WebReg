@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-e8fd1e80" !== 'undefined' ? "0.1.0-e8fd1e80" : 'dev';
+const BUILD = typeof "0.1.0-dc6ea2d6" !== 'undefined' ? "0.1.0-dc6ea2d6" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -2561,6 +2561,7 @@ freeze: 'B3',
 validations: [
 { sqref: 'B5:' + last + '5', list: state.choices.permission },
 { sqref: 'B6:' + last + '6', list: XLSX_ACTIONS },
+{ sqref: 'B7:' + last + (7 + l2list.length), list: [XLSX_CHECK] },
 ],
 };
 }
