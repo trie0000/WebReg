@@ -262,13 +262,17 @@ function buildXlsxImportPlan(state, sheets) {
       const hasContent = !!(name || e.company || e.email || e.permission || e.action ||
         e.l2all || e.org2names.length);
       if (!hasContent) continue; // 追記用の空列
-      // 入力不備チェック(不備の列はスキップ対象として警告)
+      // 入力不備チェック(不備の列はスキップ対象として警告。取込処理の前に判定する)
       const reasons = [];
       if (!name) reasons.push('利用者名が空');
       if (!e.action) reasons.push('更新内容が未選択');
+      else if (!XLSX_ACTIONS.includes(e.action)) reasons.push('更新内容の値が不正: ' + e.action);
       if (e.action === '追加' || e.action === '更新') {
         if (!e.email) reasons.push('メールアドレスが空');
         if (!e.permission) reasons.push('権限が空');
+        else if (!state.choices.permission.includes(e.permission)) {
+          reasons.push('権限の値が選択肢にありません: ' + e.permission);
+        }
         if (!e.l2all && !e.org2names.length) reasons.push(LABEL_L2 + 'のチェックがありません');
       }
       if (reasons.length) {
@@ -293,8 +297,24 @@ function buildXlsxImportPlan(state, sheets) {
   const deletes = [];
   const notFound = [];
   let skipped = 0;
+  const seenKeys = new Set(); // ファイル内の重複(同じメール/利用者名の列)検知
   for (const e of entries) {
+    if (e.action === '追加' || e.action === '更新' || e.action === '削除') {
+      const key = (e.email || '').toLowerCase() || e.name;
+      if (seenKeys.has(key)) {
+        warnings.push({ name: e.name, where: e.l1,
+          reasons: ['同じメールアドレス(または利用者名)の列がファイル内に複数あります'] });
+        continue;
+      }
+      seenKeys.add(key);
+    }
     if (e.action === '追加') {
+      const dup = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
+      if (dup) {
+        warnings.push({ name: e.name, where: e.l1,
+          reasons: ['既存の利用者(' + dup.Title + ')と重複します。更新する場合は「更新」を選んでください'] });
+        continue;
+      }
       adds.push(e);
     } else if (e.action === '更新' || e.action === '削除') {
       const u = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);

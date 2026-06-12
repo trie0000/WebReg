@@ -14,7 +14,7 @@
 
   // ---------------------------------------------------------------- state
   const state = {
-    view: 'master',  // 'users' | 'master' | 'settings'
+    view: 'users',   // 'users' | 'master' | 'notify'(既定は利用者一覧)
     l1: [],          // [{Id, Title, SortOrder, Active}]
     l2: [],          // [{Id, Title, SortOrder, Active, Level1:{Id}}]
     selectedL1: null, // Id
@@ -84,6 +84,19 @@
     }
     if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
     if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
+
+    // 未反映の変更の検知(前回「リストへ反映」した時点のスナップショットと比較)
+    state.syncPending = null;
+    if (state.usersReady) {
+      const ss = await loadSyncState();
+      state.adminGroupIds = ss.adminIds;
+      const permsConfigured = hasAnyPermConfig(state) || ss.adminIds.length > 0;
+      state.syncPending = {
+        master: !ss.fp || ss.fp.master !== computeMasterFp(state),
+        // 権限設定を一度も使っていなければ権限の未反映は出さない
+        perms: permsConfigured && (!ss.fp || ss.fp.perms !== computePermsFp(state, ss.adminIds)),
+      };
+    }
   }
 
   const nextOrder = (items) => items.reduce((m, x) => Math.max(m, x.SortOrder || 0), 0) + 10;
@@ -391,15 +404,8 @@
         const sres = await syncMastersToUserList(state, setStatus);
         if (sres.org2Mode) state.org2Mode = sres.org2Mode;
       }
-      // 2) 選択肢に無い権限の値は追加しておく(取込エラー防止)
-      const needPm = [...new Set(plan.entries.map((e) => e.permission).filter(Boolean))]
-        .filter((v) => !state.choices.permission.includes(v));
-      if (needPm.length) {
-        const merged = state.choices.permission.concat(needPm);
-        await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
-        state.choices.permission = merged;
-      }
-      // 3) 追加 / 更新(差分のある列のみ) / 論理削除
+      // 2) 追加 / 更新(差分のある列のみ) / 論理削除
+      //    (選択肢に無い権限の値は事前チェックで警告スキップ済み)
       const total = plan.adds.length + changed.length + plan.deletes.length;
       let done = 0;
       const rowErrors = [];
@@ -510,11 +516,17 @@
           <button class="pr-btn pr-btn--primary" data-act="setup">${ico('plus')}初期セットアップ</button>
         </div>`;
     }
+    const pend = state.usersReady && state.syncPending &&
+      (state.syncPending.master || state.syncPending.perms);
     return `
+      ${pend ? `
+      <div class="pr-pending">⚠ 未反映の変更があります: ${[
+        state.syncPending.master ? 'マスタ(組織区分)' : '',
+        state.syncPending.perms ? '権限グループ割当' : ''].filter(Boolean).join(' / ')}
+        — 「リストへ反映」を実行してください</div>` : ''}
       <div class="pr-syncbar">
-        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)</span>
-        <button class="pr-btn pr-btn--secondary" data-act="sync-perms" ${state.usersReady ? '' : 'disabled'}
-          title="${esc(LABEL_L1)}ごとの権限グループ割当(鍵アイコン)を各行のアクセス権として適用">${ico('key')}権限を反映</button>
+        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)。
+          権限グループ割当があれば各行のアクセス権も適用します</span>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
       </div>
       <div class="pr-cols">
@@ -655,20 +667,43 @@
         toast('warn', '有効な' + LABEL_L1 + 'がありません。先にマスタを登録してください');
         return;
       }
+      const permsConfigured = hasAnyPermConfig(state);
+      const admins = await loadAdminGroupIds();
+      if (permsConfigured && !admins.length) {
+        toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
+          '権限グループ割当があるため、未設定だと実行者以外の管理者がアクセスできなくなります');
+        return;
+      }
       const ok = await modal({
         title: 'リストへ反映',
         message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
           LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
-          '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。',
+          '件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
+          (permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
+            '(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
+            LABEL_L1 + 'の行は管理者のみ)。' : ''),
         okLabel: '反映する',
       });
       if (!ok) return;
       run('リストへ反映', async () => {
         const s = await syncMastersToUserList(state, setStatus);
+        await saveSyncFp('master', computeMasterFp(state));
+        // 権限グループ割当があれば、行レベル権限もここで適用する(ボタンを分けない)
+        if (permsConfigured) {
+          const ps = await applyPermissionsAll(state, setStatus);
+          if (ps.errors.length) {
+            toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+          } else {
+            await saveSyncFp('perms', computePermsFp(state, admins));
+          }
+        } else {
+          await saveSyncFp('perms', computePermsFp(state, admins));
+        }
         await reload();
         toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
           LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
-          (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
+          (s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
+          (permsConfigured ? ' / 行のアクセス権も適用済み' : ''));
         if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
         if (s.org2Migrated) toast('warn', s.org2Migrated);
         if (s.org2Mode) state.org2Mode = s.org2Mode;
@@ -678,35 +713,13 @@
       return;
     }
 
-    if (act === 'sync-perms') {
-      const configured = state.l1.filter((x) => permGroupIdsOf(x).length);
-      if (!configured.length) {
-        toast('warn', '権限グループが未割当です。' + LABEL_L1 + 'の鍵アイコンから割り当ててください');
-        return;
+    if (act === 'user-open-sp') {
+      try {
+        const j = await spGet(lt(LIST_USERS) + '?$select=DefaultViewUrl');
+        window.open(new URL(j.DefaultViewUrl, getWebUrl()).href, '_blank');
+      } catch (e) {
+        toast('err', 'SPリストを開けません — ' + e.message);
       }
-      const admins = await loadAdminGroupIds();
-      if (!admins.length) {
-        // 全行の継承を解除するため、管理者グループ無しだと実行者以外は誰も全行を見られなくなる
-        toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
-          '全行の継承を解除するため、未設定だと実行者以外の管理者がアクセスできなくなります');
-        return;
-      }
-      const ok = await modal({
-        title: '権限を反映',
-        message: '「' + LIST_USERS + '」の全行(' + state.users.length + '件)の権限継承を解除し、' +
-          '既定で割り当たっているサイトの権限グループを取り除いた上で、' +
-          '管理者グループ(' + admins.length + '件)=フルコントロール / 割当グループ=投稿(参照・更新可)のみを付与します。' +
-          'グループ未割当の' + LABEL_L1 + 'の行は管理者グループのみアクセス可になります。',
-        okLabel: '反映する',
-      });
-      if (!ok) return;
-      run('権限を反映', async () => {
-        const s = await applyPermissionsAll(state, setStatus);
-        toast('ok', '権限を反映しました: 割当グループ+管理者 ' + s.applied + '行 / 管理者のみ ' + s.adminOnly + '行');
-        if (s.errors.length) {
-          toast('err', '権限設定に失敗した行 ' + s.errors.length + '件 — 最初のエラー: ' + s.errors[0].msg);
-        }
-      });
       return;
     }
 
@@ -814,6 +827,8 @@
         if (state.usersReady) {
           setStatus('並び順をリストへ反映中…');
           await syncMastersToUserList(state, setStatus);
+          await saveSyncFp('master', computeMasterFp(state));
+          await reload();
         }
       });
     }

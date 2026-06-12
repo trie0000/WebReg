@@ -139,6 +139,7 @@ function usersViewHtml(state) {
            <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
         : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="「${esc(LIST_USERS)}」のSPリストを新しいタブで開く">${ico('external')}SPで開く</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-export" title="${esc(LABEL_L1)}を選んで現在の登録状況を .xlsx で出力">Excel出力</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import-xlsx" title="Excel出力と同じ形式のファイルから追加・更新・論理削除を取込">Excel取込</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
@@ -146,9 +147,12 @@ function usersViewHtml(state) {
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-ufilter-q" placeholder="検索(全列)" value="${esc(userFilter.q)}">
-      <select class="pr-input pr-fsel" id="pr-ufilter-ct" title="変更区分">${selOpts(state.choices.changeType, userFilter.changeType)}</select>
-      <select class="pr-input pr-fsel" id="pr-ufilter-pm" title="権限">${selOpts(state.choices.permission, userFilter.permission)}</select>
-      <select class="pr-input pr-fsel" id="pr-ufilter-o1" title="${esc(LABEL_L1)}">${selOpts(org1Opts, userFilter.org1)}</select>
+      <label class="pr-fwrap"><span>変更区分</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-ct">${selOpts(state.choices.changeType, userFilter.changeType)}</select></label>
+      <label class="pr-fwrap"><span>権限</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-pm">${selOpts(state.choices.permission, userFilter.permission)}</select></label>
+      <label class="pr-fwrap"><span>${esc(LABEL_L1)}</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-o1">${selOpts(org1Opts, userFilter.org1)}</select></label>
       <label class="pr-check"><input type="checkbox" id="pr-ufilter-del" ${userFilter.showDeleted ? 'checked' : ''}>削除済も表示</label>
     </div>
     <div class="pr-rows">

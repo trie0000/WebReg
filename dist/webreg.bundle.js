@@ -43,7 +43,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-2f2590e8" !== 'undefined' ? "0.1.0-2f2590e8" : 'dev';
+const BUILD = typeof "0.1.0-4a44e162" !== 'undefined' ? "0.1.0-4a44e162" : 'dev';
 let _webUrl = '';
 let _digest = null;
 function setWebUrl(u) {
@@ -566,6 +566,44 @@ if (it) await spMerge(lt(LIST_CONF) + '/items(' + it.Id + ')', body);
 else await spPost(lt(LIST_CONF) + '/items', body);
 }
 const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).length);
+const CONF_KEY_SYNC_FP = 'syncFingerprint';
+function computeMasterFp(state) {
+const activeL1 = state.l1.filter((x) => x.Active !== false);
+const ids = new Set(activeL1.map((x) => x.Id));
+const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && ids.has(x.Level1.Id));
+return JSON.stringify({
+l1: activeL1.map((x) => x.Title),
+l2: activeL2.map((x) => [x.Level1.Id, x.Title]),
+});
+}
+function computePermsFp(state, adminIds) {
+return JSON.stringify({
+g: state.l1.filter((x) => x.Active !== false).map((x) => [x.Title, permGroupIdsOf(x)]),
+a: (adminIds || []).slice().sort((a, b) => a - b),
+});
+}
+async function loadSyncState() {
+try {
+if (!(await listId(LIST_CONF))) return { adminIds: [], fp: null };
+const j = await spGet(lt(LIST_CONF) + '/items?$select=Title,Value&$top=50');
+const map = new Map((j.value || []).map((x) => [x.Title, x.Value]));
+let fp = null;
+try { fp = JSON.parse(map.get(CONF_KEY_SYNC_FP) || 'null'); } catch { }
+return { adminIds: parseGroupIds(map.get(CONF_KEY_ADMIN_GROUPS)), fp };
+} catch { return { adminIds: [], fp: null }; }
+}
+async function saveSyncFp(part, value) {
+try {
+await ensureConfList();
+const it = await getConfItem(CONF_KEY_SYNC_FP);
+let fp = {};
+try { fp = JSON.parse((it && it.Value) || '{}') || {}; } catch { }
+fp[part] = value;
+const body = { Title: CONF_KEY_SYNC_FP, Value: JSON.stringify(fp) };
+if (it) await spMerge(lt(LIST_CONF) + '/items(' + it.Id + ')', body);
+else await spPost(lt(LIST_CONF) + '/items', body);
+} catch { }
+}
 async function buildPermContext(state) {
 const roles = await fetchPermRoles();
 const adminIds = await loadAdminGroupIds();
@@ -646,6 +684,7 @@ const back = el(`
             (投稿のアクセス権を付与。更新には参照が含まれます)。反映は「権限を反映」ボタンで実行します。</span>
           <div class="pr-field">
             <label>参照・更新できるグループ</label>
+            <input type="text" class="pr-input" data-pgfilter placeholder="グループ名で絞り込み" aria-label="グループ名で絞り込み">
             <div class="pr-checks pr-checks--perm" data-pglist="g"><span class="pr-note">グループを取得中…</span></div>
           </div>
           <div class="pr-modal-actions">
@@ -654,6 +693,12 @@ const back = el(`
           </div>
         </div>
       </div>`);
+back.querySelector('[data-pgfilter]').addEventListener('input', (ev) => {
+const q = ev.target.value.trim().toLowerCase();
+back.querySelectorAll('[data-pglist="g"] .pr-check').forEach((lb) => {
+lb.style.display = !q || lb.textContent.toLowerCase().includes(q) ? '' : 'none';
+});
+});
 (async () => {
 try {
 groups = await fetchSiteGroups();
@@ -717,6 +762,7 @@ const ICONS = {
 'plus': '<path d="M12 5v14M5 12h14"/>',
 'copy': '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
 'key': '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
+'external': '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/>',
 };
 const ico = (n) => '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"' +
 ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
@@ -1003,6 +1049,16 @@ const css = `
 #${ROOT_ID} .pr-checks--perm .pr-check{ display:flex; padding:2px 0; white-space:normal; }
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
+/* ---- フィルタのラベル / 未反映バナー ---- */
+#${ROOT_ID} .pr-fwrap{
+  display:inline-flex; align-items:center; gap:var(--s-2);
+  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+}
+#${ROOT_ID} .pr-pending{
+  margin:0 var(--gutter); margin-top:var(--s-5); padding:var(--s-4) var(--s-6);
+  border:1px solid rgba(196,127,28,.4); border-radius:var(--r-2);
+  background:rgba(196,127,28,.10); color:var(--warn); font-size:var(--fs-md);
+}
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
 #${ROOT_ID} .pr-diff-item{
@@ -1634,6 +1690,7 @@ return `
            <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-clear-sel">選択解除</button>`
 : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
+      <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="「${esc(LIST_USERS)}」のSPリストを新しいタブで開く">${ico('external')}SPで開く</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-export" title="${esc(LABEL_L1)}を選んで現在の登録状況を .xlsx で出力">Excel出力</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import-xlsx" title="Excel出力と同じ形式のファイルから追加・更新・論理削除を取込">Excel取込</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
@@ -1641,9 +1698,12 @@ return `
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-ufilter-q" placeholder="検索(全列)" value="${esc(userFilter.q)}">
-      <select class="pr-input pr-fsel" id="pr-ufilter-ct" title="変更区分">${selOpts(state.choices.changeType, userFilter.changeType)}</select>
-      <select class="pr-input pr-fsel" id="pr-ufilter-pm" title="権限">${selOpts(state.choices.permission, userFilter.permission)}</select>
-      <select class="pr-input pr-fsel" id="pr-ufilter-o1" title="${esc(LABEL_L1)}">${selOpts(org1Opts, userFilter.org1)}</select>
+      <label class="pr-fwrap"><span>変更区分</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-ct">${selOpts(state.choices.changeType, userFilter.changeType)}</select></label>
+      <label class="pr-fwrap"><span>権限</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-pm">${selOpts(state.choices.permission, userFilter.permission)}</select></label>
+      <label class="pr-fwrap"><span>${esc(LABEL_L1)}</span>
+        <select class="pr-input pr-fsel" id="pr-ufilter-o1">${selOpts(org1Opts, userFilter.org1)}</select></label>
       <label class="pr-check"><input type="checkbox" id="pr-ufilter-del" ${userFilter.showDeleted ? 'checked' : ''}>削除済も表示</label>
     </div>
     <div class="pr-rows">
@@ -2873,9 +2933,13 @@ if (!hasContent) continue;
 const reasons = [];
 if (!name) reasons.push('利用者名が空');
 if (!e.action) reasons.push('更新内容が未選択');
+else if (!XLSX_ACTIONS.includes(e.action)) reasons.push('更新内容の値が不正: ' + e.action);
 if (e.action === '追加' || e.action === '更新') {
 if (!e.email) reasons.push('メールアドレスが空');
 if (!e.permission) reasons.push('権限が空');
+else if (!state.choices.permission.includes(e.permission)) {
+reasons.push('権限の値が選択肢にありません: ' + e.permission);
+}
 if (!e.l2all && !e.org2names.length) reasons.push(LABEL_L2 + 'のチェックがありません');
 }
 if (reasons.length) {
@@ -2898,8 +2962,24 @@ const updates = [];
 const deletes = [];
 const notFound = [];
 let skipped = 0;
+const seenKeys = new Set();
 for (const e of entries) {
+if (e.action === '追加' || e.action === '更新' || e.action === '削除') {
+const key = (e.email || '').toLowerCase() || e.name;
+if (seenKeys.has(key)) {
+warnings.push({ name: e.name, where: e.l1,
+reasons: ['同じメールアドレス(または利用者名)の列がファイル内に複数あります'] });
+continue;
+}
+seenKeys.add(key);
+}
 if (e.action === '追加') {
+const dup = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
+if (dup) {
+warnings.push({ name: e.name, where: e.l1,
+reasons: ['既存の利用者(' + dup.Title + ')と重複します。更新する場合は「更新」を選んでください'] });
+continue;
+}
 adds.push(e);
 } else if (e.action === '更新' || e.action === '削除') {
 const u = (e.email && byEmail.get(e.email.toLowerCase())) || byName.get(e.name);
@@ -3105,7 +3185,7 @@ window.__webregCheckNow = check;
 const prev = document.getElementById(ROOT_ID);
 if (prev) prev.remove();
 const state = {
-view: 'master',
+view: 'users',
 l1: [],
 l2: [],
 selectedL1: null,
@@ -3167,6 +3247,16 @@ permission: pmChoices,
 }
 if (state.selectedL1 && !state.l1.some((x) => x.Id === state.selectedL1)) state.selectedL1 = null;
 if (!state.selectedL1 && state.l1.length) state.selectedL1 = state.l1[0].Id;
+state.syncPending = null;
+if (state.usersReady) {
+const ss = await loadSyncState();
+state.adminGroupIds = ss.adminIds;
+const permsConfigured = hasAnyPermConfig(state) || ss.adminIds.length > 0;
+state.syncPending = {
+master: !ss.fp || ss.fp.master !== computeMasterFp(state),
+perms: permsConfigured && (!ss.fp || ss.fp.perms !== computePermsFp(state, ss.adminIds)),
+};
+}
 }
 const nextOrder = (items) => items.reduce((m, x) => Math.max(m, x.SortOrder || 0), 0) + 10;
 const addItem = (listTitle, body) => spPost(lt(listTitle) + '/items', body);
@@ -3440,13 +3530,6 @@ setStatus('マスタをリストへ反映中…');
 const sres = await syncMastersToUserList(state, setStatus);
 if (sres.org2Mode) state.org2Mode = sres.org2Mode;
 }
-const needPm = [...new Set(plan.entries.map((e) => e.permission).filter(Boolean))]
-.filter((v) => !state.choices.permission.includes(v));
-if (needPm.length) {
-const merged = state.choices.permission.concat(needPm);
-await setChoices(LIST_USERS, 'Permission', '権限', merged, true);
-state.choices.permission = merged;
-}
 const total = plan.adds.length + changed.length + plan.deletes.length;
 let done = 0;
 const rowErrors = [];
@@ -3550,11 +3633,17 @@ return `
           <button class="pr-btn pr-btn--primary" data-act="setup">${ico('plus')}初期セットアップ</button>
         </div>`;
 }
+const pend = state.usersReady && state.syncPending &&
+(state.syncPending.master || state.syncPending.perms);
 return `
+      ${pend ? `
+      <div class="pr-pending">⚠ 未反映の変更があります: ${[
+state.syncPending.master ? 'マスタ(組織区分)' : '',
+state.syncPending.perms ? '権限グループ割当' : ''].filter(Boolean).join(' / ')}
+        — 「リストへ反映」を実行してください</div>` : ''}
       <div class="pr-syncbar">
-        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)</span>
-        <button class="pr-btn pr-btn--secondary" data-act="sync-perms" ${state.usersReady ? '' : 'disabled'}
-          title="${esc(LABEL_L1)}ごとの権限グループ割当(鍵アイコン)を各行のアクセス権として適用">${ico('key')}権限を反映</button>
+        <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・☑集計表示に反映します(無効はスキップ。列の削除はしません)。
+          権限グループ割当があれば各行のアクセス権も適用します</span>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
       </div>
       <div class="pr-cols">
@@ -3682,20 +3771,42 @@ if (!activeL1.length) {
 toast('warn', '有効な' + LABEL_L1 + 'がありません。先にマスタを登録してください');
 return;
 }
+const permsConfigured = hasAnyPermConfig(state);
+const admins = await loadAdminGroupIds();
+if (permsConfigured && !admins.length) {
+toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
+'権限グループ割当があるため、未設定だと実行者以外の管理者がアクセスできなくなります');
+return;
+}
 const ok = await modal({
 title: 'リストへ反映',
 message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
 LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
-'件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。',
+'件をチェック列+☑集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
+(permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
+'(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
+LABEL_L1 + 'の行は管理者のみ)。' : ''),
 okLabel: '反映する',
 });
 if (!ok) return;
 run('リストへ反映', async () => {
 const s = await syncMastersToUserList(state, setStatus);
+await saveSyncFp('master', computeMasterFp(state));
+if (permsConfigured) {
+const ps = await applyPermissionsAll(state, setStatus);
+if (ps.errors.length) {
+toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+} else {
+await saveSyncFp('perms', computePermsFp(state, admins));
+}
+} else {
+await saveSyncFp('perms', computePermsFp(state, admins));
+}
 await reload();
 toast('ok', (s.createdList ? '「' + LIST_USERS + '」を作成し、' : '') +
 LABEL_L1 + ' ' + s.l1Count + '件 / ' + LABEL_L2 + ' ' + s.l2Count + '件を反映しました' +
-(s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : ''));
+(s.added ? '(列追加 ' + s.added + ')' : '') + (s.renamed ? '(改名 ' + s.renamed + ')' : '') +
+(permsConfigured ? ' / 行のアクセス権も適用済み' : ''));
 if (s.orderWarn) toast('warn', '列の並び替えに一部失敗しました — ' + s.orderWarn);
 if (s.org2Migrated) toast('warn', s.org2Migrated);
 if (s.org2Mode) state.org2Mode = s.org2Mode;
@@ -3704,34 +3815,13 @@ if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しまし�
 });
 return;
 }
-if (act === 'sync-perms') {
-const configured = state.l1.filter((x) => permGroupIdsOf(x).length);
-if (!configured.length) {
-toast('warn', '権限グループが未割当です。' + LABEL_L1 + 'の鍵アイコンから割り当ててください');
-return;
+if (act === 'user-open-sp') {
+try {
+const j = await spGet(lt(LIST_USERS) + '?$select=DefaultViewUrl');
+window.open(new URL(j.DefaultViewUrl, getWebUrl()).href, '_blank');
+} catch (e) {
+toast('err', 'SPリストを開けません — ' + e.message);
 }
-const admins = await loadAdminGroupIds();
-if (!admins.length) {
-toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
-'全行の継承を解除するため、未設定だと実行者以外の管理者がアクセスできなくなります');
-return;
-}
-const ok = await modal({
-title: '権限を反映',
-message: '「' + LIST_USERS + '」の全行(' + state.users.length + '件)の権限継承を解除し、' +
-'既定で割り当たっているサイトの権限グループを取り除いた上で、' +
-'管理者グループ(' + admins.length + '件)=フルコントロール / 割当グループ=投稿(参照・更新可)のみを付与します。' +
-'グループ未割当の' + LABEL_L1 + 'の行は管理者グループのみアクセス可になります。',
-okLabel: '反映する',
-});
-if (!ok) return;
-run('権限を反映', async () => {
-const s = await applyPermissionsAll(state, setStatus);
-toast('ok', '権限を反映しました: 割当グループ+管理者 ' + s.applied + '行 / 管理者のみ ' + s.adminOnly + '行');
-if (s.errors.length) {
-toast('err', '権限設定に失敗した行 ' + s.errors.length + '件 — 最初のエラー: ' + s.errors[0].msg);
-}
-});
 return;
 }
 if (act === 'bulk-l1' || act === 'bulk-l2') {
@@ -3833,6 +3923,8 @@ await reload();
 if (state.usersReady) {
 setStatus('並び順をリストへ反映中…');
 await syncMastersToUserList(state, setStatus);
+await saveSyncFp('master', computeMasterFp(state));
+await reload();
 }
 });
 }

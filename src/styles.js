@@ -300,6 +300,17 @@ const css = `
 /* L1 行の鍵アイコン: 割当ありはアクセント色 */
 #${ROOT_ID} .pr-row .pr-perm-on{ color:var(--accent-strong) !important; }
 
+/* ---- フィルタのラベル / 未反映バナー ---- */
+#${ROOT_ID} .pr-fwrap{
+  display:inline-flex; align-items:center; gap:var(--s-2);
+  font-size:var(--fs-sm); color:var(--ink-3); white-space:nowrap;
+}
+#${ROOT_ID} .pr-pending{
+  margin:0 var(--gutter); margin-top:var(--s-5); padding:var(--s-4) var(--s-6);
+  border:1px solid rgba(196,127,28,.4); border-radius:var(--r-2);
+  background:rgba(196,127,28,.10); color:var(--warn); font-size:var(--fs-md);
+}
+
 /* ---- Excel取込の差分明細 ---- */
 #${ROOT_ID} .pr-diff-list{ display:block; max-height:280px; overflow:auto; }
 #${ROOT_ID} .pr-diff-item{

@@ -87,6 +87,55 @@ async function saveAdminGroupIds(ids) {
 // L1 に1件でもグループ割当があるか(行単位の自動反映を行うかの判定)
 const hasAnyPermConfig = (state) => state.l1.some((x) => permGroupIdsOf(x).length);
 
+// ---- 未反映の変更の検知(フィンガープリント) ----------------------------
+// 「リストへ反映」が適用した時点のマスタ/権限設定のスナップショットを
+// WebReg設定リストに保存し、現在の設定と違えばマスタ管理画面に表示する
+
+const CONF_KEY_SYNC_FP = 'syncFingerprint';
+
+function computeMasterFp(state) {
+  const activeL1 = state.l1.filter((x) => x.Active !== false);
+  const ids = new Set(activeL1.map((x) => x.Id));
+  const activeL2 = state.l2.filter((x) => x.Active !== false && x.Level1 && ids.has(x.Level1.Id));
+  return JSON.stringify({
+    l1: activeL1.map((x) => x.Title),
+    l2: activeL2.map((x) => [x.Level1.Id, x.Title]),
+  });
+}
+
+function computePermsFp(state, adminIds) {
+  return JSON.stringify({
+    g: state.l1.filter((x) => x.Active !== false).map((x) => [x.Title, permGroupIdsOf(x)]),
+    a: (adminIds || []).slice().sort((a, b) => a - b),
+  });
+}
+
+// 共有設定からまとめて読む: 管理者グループ + 反映済みフィンガープリント
+async function loadSyncState() {
+  try {
+    if (!(await listId(LIST_CONF))) return { adminIds: [], fp: null };
+    const j = await spGet(lt(LIST_CONF) + '/items?$select=Title,Value&$top=50');
+    const map = new Map((j.value || []).map((x) => [x.Title, x.Value]));
+    let fp = null;
+    try { fp = JSON.parse(map.get(CONF_KEY_SYNC_FP) || 'null'); } catch { /* ignore */ }
+    return { adminIds: parseGroupIds(map.get(CONF_KEY_ADMIN_GROUPS)), fp };
+  } catch { return { adminIds: [], fp: null }; }
+}
+
+// part: 'master' | 'perms'。反映が成功した部分だけ更新する
+async function saveSyncFp(part, value) {
+  try {
+    await ensureConfList();
+    const it = await getConfItem(CONF_KEY_SYNC_FP);
+    let fp = {};
+    try { fp = JSON.parse((it && it.Value) || '{}') || {}; } catch { /* ignore */ }
+    fp[part] = value;
+    const body = { Title: CONF_KEY_SYNC_FP, Value: JSON.stringify(fp) };
+    if (it) await spMerge(lt(LIST_CONF) + '/items(' + it.Id + ')', body);
+    else await spPost(lt(LIST_CONF) + '/items', body);
+  } catch { /* 記録に失敗しても反映自体は成立している */ }
+}
+
 // ---- 反映(アイテムへの権限適用) ---------------------------------------
 
 // 反映に使う文脈(ロール定義・管理者・L1ごとの割当)を一度だけ組み立てる
@@ -188,6 +237,7 @@ function openL1PermModal(state, l1) {
             (投稿のアクセス権を付与。更新には参照が含まれます)。反映は「権限を反映」ボタンで実行します。</span>
           <div class="pr-field">
             <label>参照・更新できるグループ</label>
+            <input type="text" class="pr-input" data-pgfilter placeholder="グループ名で絞り込み" aria-label="グループ名で絞り込み">
             <div class="pr-checks pr-checks--perm" data-pglist="g"><span class="pr-note">グループを取得中…</span></div>
           </div>
           <div class="pr-modal-actions">
@@ -196,6 +246,14 @@ function openL1PermModal(state, l1) {
           </div>
         </div>
       </div>`);
+
+    // 絞り込み(チェック状態は DOM に残るため、表示だけを切り替える)
+    back.querySelector('[data-pgfilter]').addEventListener('input', (ev) => {
+      const q = ev.target.value.trim().toLowerCase();
+      back.querySelectorAll('[data-pglist="g"] .pr-check').forEach((lb) => {
+        lb.style.display = !q || lb.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
 
     (async () => {
       try {

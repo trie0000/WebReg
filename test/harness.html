@@ -79,7 +79,7 @@
     const list = getList(title);
     if (!list) return json(404, {});
 
-    if (rest.startsWith('?')) return json(200, { Id: list.Id });
+    if (rest.startsWith('?')) return json(200, { Id: list.Id, DefaultViewUrl: '/mock/Lists/' + title + '/AllItems.aspx' });
 
     if (rest.startsWith('/fields/getbyinternalnameortitle(')) {
       const f = rest.match(/\('([^']*)'\)/)[1];
