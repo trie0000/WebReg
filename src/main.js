@@ -869,9 +869,9 @@
         message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
           LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
           '件をチェック列+✅集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
-          (permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
+          (permsConfigured ? ' あわせて、権限設定が変わった' + LABEL_L1 + 'の行にアクセス権を適用します' +
             '(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
-            LABEL_L1 + 'の行は管理者のみ)。' : ''),
+            LABEL_L1 + 'の行は管理者のみ。変更がなければ再適用しません)。' : ''),
         okLabel: '反映する',
       });
       if (!ok) return;
@@ -890,11 +890,13 @@
             toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
           } else {
             await saveSyncFp('perms', computePermsSnap(state, admins));
+            await saveSyncFp('permsVer', PERM_APPLY_VER); // 個別権限を残さない方式で適用済みと記録
             permMsg = ps.skipped ? ' / 権限は変更なし(再適用なし)'
               : ' / 行のアクセス権を ' + (ps.applied + ps.adminOnly) + '件に適用';
           }
         } else {
           await saveSyncFp('perms', computePermsSnap(state, admins));
+          await saveSyncFp('permsVer', PERM_APPLY_VER);
         }
         // 海外/両方に振り分けた組織区分1があれば、英語版利用者リストも生成・反映する
         let enMsg = '';

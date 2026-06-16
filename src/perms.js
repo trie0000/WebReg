@@ -125,23 +125,24 @@ async function saveSyncFp(part, value) {
 async function buildPermContext(state) {
   const roles = await fetchPermRoles();
   const adminIds = await loadAdminGroupIds();
-  const me = await spGet('/_api/web/currentuser?$select=Id');
   const cfgByTitle = new Map();
   for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
-  return { roles, adminIds, currentUserId: me.Id, cfgByTitle };
+  return { roles, adminIds, cfgByTitle };
 }
 
-// 1アイテムへ適用: 継承を解除し、既定で割り当たっていたグループを取り除いてから
-// [管理者=フル / 割当グループ=投稿] のみを付与する(未割当の組織区分1は管理者のみ)
+// 1アイテムへ適用: 継承を解除し、既定/既存の割当(個別ユーザ権限を含む)をすべて取り除いてから
+// [管理者=フル / 割当グループ=投稿] のグループだけを付与する(未割当の組織区分1は管理者のみ)。
+//   - 実行者(リスト作成者)に SP が自動付与する個別ユーザ権限も削除する。実行者は管理者グループ/
+//     割当グループ経由でアクセスする前提(個別付与は不要)。サイトコレクション管理者は明示割当が
+//     無くても常にアクセスできるためロックアウトはしない。
 async function applyPermToItem(ctx, itemId, l1Title) {
   const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
   const base = lt(LIST_USERS) + '/items(' + itemId + ')';
   await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
-  // 既定の継承割当(サイトの全権限グループ等)が残っていても確実に外す。
-  // 実行者自身は外さない(SP が自動付与するフルコントロール。外すとロックアウトの恐れ)
+  // 既定の継承割当(サイトの全権限グループ等)も、継承解除で自動付与される実行者の個別権限も
+  // すべて外す。権限はグループだけで構成し、個別ユーザ権限は一切残さない
   const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
   for (const ra of current) {
-    if (ra.PrincipalId === ctx.currentUserId) continue;
     await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
   }
   const assign = (gid, roleId) =>
@@ -183,15 +184,20 @@ async function applyPermissionsAll(state, log) {
   return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
 }
 
+// 個別ユーザ権限を残さない方式に変更した版番号。旧スナップショット(この版より前に反映)では
+// 既存行に実行者の個別権限が残っているため、一度だけ全行へ再適用して掃除する
+const PERM_APPLY_VER = 2;
+
 // 前回反映時のスナップショットと比べ、権限設定が変わった行だけに反映する。
 // 「リストへ反映」でマスタ名や並びだけ変えたときに全件更新が走らないようにする。
-//   - 管理者グループが変わった or スナップショット無し → 全行に適用
+//   - 管理者グループが変わった or スナップショット無し or 版が古い → 全行に適用
 //   - それ以外 → 割当が変わった組織区分1の行だけに適用(変化なしなら何もしない)
 // 戻り値は applyPermissionsToItems と同じ + {scanned, skipped:true(一切適用せず)}
 async function applyPermissionsChanged(state, fp, adminIds, log) {
   const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
+  const verOk = !!(fp && fp.permsVer === PERM_APPLY_VER); // 旧版は一度だけ全行で掃除
   let targetTitles = null; // null = 全行
-  if (permsSnap) {
+  if (permsSnap && verOk) {
     const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids.slice().sort((a, b) => a - b))]));
     const oldAdmins = JSON.stringify((permsSnap.admins || []).slice().sort((a, b) => a - b));
     const curAdmins = JSON.stringify((adminIds || []).slice().sort((a, b) => a - b));

@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-fef121a6" !== 'undefined' ? "0.1.0-fef121a6" : 'dev';
+const BUILD = typeof "0.1.0-7535b1d1" !== 'undefined' ? "0.1.0-7535b1d1" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -676,11 +676,15 @@ try { await spPost(lt(LIST_USERS_EN) + '/items', body); summary.users++; } catch
 } catch (e) { summary.usersWarn = e.message; }
 return summary;
 }
-function chipFormatterJson(classMap, deflt) {
-const entries = Object.entries(classMap);
-let cls = "'" + deflt + "'";
+const CHIP_ADD = 'rgb(202,240,204)';
+const CHIP_UPD = 'rgb(212,231,246)';
+const CHIP_DEL = 'rgb(250,187,195)';
+const CHIP_GRAY = 'rgb(229,229,229)';
+function chipFormatterJson(colorMap, deflt) {
+const entries = Object.entries(colorMap);
+let col = "'" + deflt + "'";
 for (let i = entries.length - 1; i >= 0; i--) {
-cls = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + cls + ")";
+col = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + col + ")";
 }
 return JSON.stringify({
 $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
@@ -695,8 +699,8 @@ display: 'inline-block',
 padding: '2px 10px',
 'border-radius': '16px',
 'white-space': 'nowrap',
+'background-color': '=' + col,
 },
-attributes: { class: '=' + cls },
 }],
 });
 }
@@ -704,23 +708,23 @@ async function applyListFormatting(state, listTitle, lang) {
 const target = listTitle || LIST_USERS;
 const tr = (lang === 'en');
 const ctMap = {};
-ctMap[tr ? toEnChangeType('追加') : '追加'] = 'sp-css-backgroundColor-BgMintGreen';
-ctMap[tr ? toEnChangeType('新規') : '新規'] = 'sp-css-backgroundColor-BgMintGreen';
-ctMap[tr ? toEnChangeType('更新') : '更新'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-ctMap[tr ? toEnChangeType('変更') : '変更'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-ctMap[tr ? toEnChangeType('削除') : '削除'] = 'sp-css-backgroundColor-BgCoral';
-ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = 'sp-css-backgroundColor-BgLightGray';
+ctMap[tr ? toEnChangeType('追加') : '追加'] = CHIP_ADD;
+ctMap[tr ? toEnChangeType('新規') : '新規'] = CHIP_ADD;
+ctMap[tr ? toEnChangeType('更新') : '更新'] = CHIP_UPD;
+ctMap[tr ? toEnChangeType('変更') : '変更'] = CHIP_UPD;
+ctMap[tr ? toEnChangeType('削除') : '削除'] = CHIP_DEL;
+ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = CHIP_GRAY;
 const pmMap = {};
-pmMap[tr ? toEnPermission('更新者') : '更新者'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = 'sp-css-backgroundColor-BgLightGray';
+pmMap[tr ? toEnPermission('更新者') : '更新者'] = CHIP_UPD;
+pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = CHIP_GRAY;
 const setFmt = async (internal, json) => {
 try {
 await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
 { CustomFormatter: json });
 } catch { }
 };
-await setFmt('ChangeType', chipFormatterJson(ctMap, 'sp-css-backgroundColor-BgLightGray'));
-await setFmt('Permission', chipFormatterJson(pmMap, 'sp-css-backgroundColor-BgLightGray'));
+await setFmt('ChangeType', chipFormatterJson(ctMap, CHIP_GRAY));
+await setFmt('Permission', chipFormatterJson(pmMap, CHIP_GRAY));
 const calcCols = ['OrgLevel2'];
 try {
 const subs = await spGet(lt(target) +
@@ -862,10 +866,9 @@ else await spPost(lt(LIST_CONF) + '/items', body);
 async function buildPermContext(state) {
 const roles = await fetchPermRoles();
 const adminIds = await loadAdminGroupIds();
-const me = await spGet('/_api/web/currentuser?$select=Id');
 const cfgByTitle = new Map();
 for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
-return { roles, adminIds, currentUserId: me.Id, cfgByTitle };
+return { roles, adminIds, cfgByTitle };
 }
 async function applyPermToItem(ctx, itemId, l1Title) {
 const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
@@ -873,7 +876,6 @@ const base = lt(LIST_USERS) + '/items(' + itemId + ')';
 await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
 const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
 for (const ra of current) {
-if (ra.PrincipalId === ctx.currentUserId) continue;
 await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
 }
 const assign = (gid, roleId) =>
@@ -910,10 +912,12 @@ async function applyPermissionsAll(state, log) {
 const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
 return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
 }
+const PERM_APPLY_VER = 2;
 async function applyPermissionsChanged(state, fp, adminIds, log) {
 const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
+const verOk = !!(fp && fp.permsVer === PERM_APPLY_VER);
 let targetTitles = null;
-if (permsSnap) {
+if (permsSnap && verOk) {
 const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids.slice().sort((a, b) => a - b))]));
 const oldAdmins = JSON.stringify((permsSnap.admins || []).slice().sort((a, b) => a - b));
 const curAdmins = JSON.stringify((adminIds || []).slice().sort((a, b) => a - b));
@@ -5440,9 +5444,9 @@ title: 'リストへ反映',
 message: '「' + LIST_USERS + '」リスト(無ければ作成)に反映します: ' +
 LABEL_L1 + ' ' + activeL1.length + '件を選択肢に、' + LABEL_L2 + ' ' + activeL2.length +
 '件をチェック列+✅集計表示に。マスタで無効/削除した分の列は消えません(データ保全)。' +
-(permsConfigured ? ' あわせて全行(' + state.users.length + '件)のアクセス権を適用します' +
+(permsConfigured ? ' あわせて、権限設定が変わった' + LABEL_L1 + 'の行にアクセス権を適用します' +
 '(管理者グループ ' + admins.length + '件=フル / 割当グループ=投稿。未割当の' +
-LABEL_L1 + 'の行は管理者のみ)。' : ''),
+LABEL_L1 + 'の行は管理者のみ。変更がなければ再適用しません)。' : ''),
 okLabel: '反映する',
 });
 if (!ok) return;
@@ -5459,11 +5463,13 @@ if (ps.errors.length) {
 toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
 } else {
 await saveSyncFp('perms', computePermsSnap(state, admins));
+await saveSyncFp('permsVer', PERM_APPLY_VER);
 permMsg = ps.skipped ? ' / 権限は変更なし(再適用なし)'
 : ' / 行のアクセス権を ' + (ps.applied + ps.adminOnly) + '件に適用';
 }
 } else {
 await saveSyncFp('perms', computePermsSnap(state, admins));
+await saveSyncFp('permsVer', PERM_APPLY_VER);
 }
 let enMsg = '';
 if (anyEnAssigned(state)) {
