@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-69ca1cbb" !== 'undefined' ? "0.1.0-69ca1cbb" : 'dev';
+const BUILD = typeof "0.1.0-d1fa4c22" !== 'undefined' ? "0.1.0-d1fa4c22" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -676,51 +676,16 @@ try { await spPost(lt(LIST_USERS_EN) + '/items', body); summary.users++; } catch
 } catch (e) { summary.usersWarn = e.message; }
 return summary;
 }
-function chipFormatterJson(classMap, deflt) {
-const entries = Object.entries(classMap);
-let cls = "'" + deflt + "'";
-for (let i = entries.length - 1; i >= 0; i--) {
-cls = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + cls + ")";
-}
-return JSON.stringify({
-$schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
-elmType: 'div',
-txtContent: '@currentField',
-style: {
-'box-sizing': 'border-box',
-display: "=if(@currentField == '', 'none', 'inline-flex')",
-'align-items': 'center',
-padding: '1px 10px',
-'border-radius': '16px',
-height: '22px',
-'white-space': 'nowrap',
-},
-attributes: { class: '=' + cls },
-});
-}
 async function applyListFormatting(state, listTitle, lang) {
 const target = listTitle || LIST_USERS;
-const tr = (lang === 'en');
-const ctMap = {};
-ctMap[tr ? toEnChangeType('追加') : '追加'] = 'sp-css-backgroundColor-BgMintGreen';
-ctMap[tr ? toEnChangeType('新規') : '新規'] = 'sp-css-backgroundColor-BgMintGreen';
-ctMap[tr ? toEnChangeType('更新') : '更新'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-ctMap[tr ? toEnChangeType('変更') : '変更'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-ctMap[tr ? toEnChangeType('削除') : '削除'] = 'sp-css-backgroundColor-BgCoral';
-ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = 'sp-css-backgroundColor-BgLightGray';
-const ctFmt = chipFormatterJson(ctMap, 'sp-css-backgroundColor-BgLightGray');
-const pmMap = {};
-pmMap[tr ? toEnPermission('更新者') : '更新者'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = 'sp-css-backgroundColor-BgLightGray';
-const pmFmt = chipFormatterJson(pmMap, 'sp-css-backgroundColor-BgLightGray');
-const setFmt = async (internal, json) => {
+const clearFmt = async (internal) => {
 try {
 await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
-{ CustomFormatter: json });
+{ CustomFormatter: '' });
 } catch { }
 };
-await setFmt('ChangeType', ctFmt);
-await setFmt('Permission', pmFmt);
+await clearFmt('ChangeType');
+await clearFmt('Permission');
 const calcCols = ['OrgLevel2'];
 try {
 const subs = await spGet(lt(target) +

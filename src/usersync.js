@@ -488,58 +488,21 @@ async function syncEnglishUserList(state, log) {
   return summary;
 }
 
-// 選択肢→SPテーマ色クラスのチップ列フォーマットを生成する(モダンの既定チップに色だけ付ける)。
-// 色は SP 標準の sp-css-backgroundColor-Bg* クラスで指定(自前の色値は使わない)。
-// 空欄はチップを出さない(display:none)
-function chipFormatterJson(classMap, deflt) {
-  const entries = Object.entries(classMap);
-  let cls = "'" + deflt + "'";
-  for (let i = entries.length - 1; i >= 0; i--) {
-    cls = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + cls + ")";
-  }
-  return JSON.stringify({
-    $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
-    elmType: 'div',
-    txtContent: '@currentField',
-    style: {
-      'box-sizing': 'border-box',
-      display: "=if(@currentField == '', 'none', 'inline-flex')",
-      'align-items': 'center',
-      padding: '1px 10px',
-      'border-radius': '16px',
-      height: '22px',
-      'white-space': 'nowrap',
-    },
-    attributes: { class: '=' + cls },
-  });
-}
-
-// 変更区分/権限の選択肢に SP 標準色を付け、読み取り専用の集計列をフォームから隠す。
-// listTitle 省略時は日本語の利用者一覧。lang='en' のときは英語の選択肢値に色を付ける
+// 変更区分/権限の選択肢列の独自書式を外して SP 標準のチップ表示に戻し、
+// 読み取り専用の集計列をフォームから隠す。
+// listTitle 省略時は日本語の利用者一覧。lang は集計列の処理共通のため未使用。
 async function applyListFormatting(state, listTitle, lang) {
   const target = listTitle || LIST_USERS;
-  const tr = (lang === 'en');
-  // SP テーマの淡色クラス(実機で描画を確認済み)。追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰
-  const ctMap = {};
-  ctMap[tr ? toEnChangeType('追加') : '追加'] = 'sp-css-backgroundColor-BgMintGreen';
-  ctMap[tr ? toEnChangeType('新規') : '新規'] = 'sp-css-backgroundColor-BgMintGreen';
-  ctMap[tr ? toEnChangeType('更新') : '更新'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-  ctMap[tr ? toEnChangeType('変更') : '変更'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-  ctMap[tr ? toEnChangeType('削除') : '削除'] = 'sp-css-backgroundColor-BgCoral';
-  ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = 'sp-css-backgroundColor-BgLightGray';
-  const ctFmt = chipFormatterJson(ctMap, 'sp-css-backgroundColor-BgLightGray');
-  const pmMap = {};
-  pmMap[tr ? toEnPermission('更新者') : '更新者'] = 'sp-css-backgroundColor-BgCornflowerBlue';
-  pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = 'sp-css-backgroundColor-BgLightGray';
-  const pmFmt = chipFormatterJson(pmMap, 'sp-css-backgroundColor-BgLightGray');
-  const setFmt = async (internal, json) => {
+  // 選択肢(Choice)列はモダン SP が標準で色付きチップを描画する。独自 CustomFormatter は
+  // かえって淡くぼやけるため、空文字でクリアして標準チップに戻す(既に当たっていた書式も解除)。
+  const clearFmt = async (internal) => {
     try {
       await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
-        { CustomFormatter: json });
-    } catch { /* 書式設定は失敗しても反映は継続 */ }
+        { CustomFormatter: '' });
+    } catch { /* 失敗しても反映は継続 */ }
   };
-  await setFmt('ChangeType', ctFmt);
-  await setFmt('Permission', pmFmt);
+  await clearFmt('ChangeType');
+  await clearFmt('Permission');
 
   // 読み取り専用の集計列(統合列 OrgLevel2 + 中間列 O2S_*)を新規/編集フォームから隠す
   const calcCols = ['OrgLevel2'];
