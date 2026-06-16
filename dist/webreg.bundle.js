@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-429d769a" !== 'undefined' ? "0.1.0-429d769a" : 'dev';
+const BUILD = typeof "0.1.0-4508bc22" !== 'undefined' ? "0.1.0-4508bc22" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -4709,7 +4709,7 @@ state.usersReady = !!(await listId(LIST_USERS));
 async function loadAll() {
 const [r1, r2, ru] = await Promise.all([
 spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-spGet(lt(LIST_L2) + '/items?$select=Id,Title,TitleEn,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+spGet(lt(LIST_L2) + '/items?$select=*&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
 state.usersReady
 ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
 : Promise.resolve({ value: [] }),

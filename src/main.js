@@ -46,7 +46,8 @@
     const [r1, r2, ru] = await Promise.all([
       // $select=* : 権限グループ割当列(PermRead/PermEdit。未作成でも可)も読む
       spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-      spGet(lt(LIST_L2) + '/items?$select=Id,Title,TitleEn,SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+      // $select=* : 英語名列(TitleEn)が未作成の既存リストでも落ちないようにする(列を明示指定すると 400)
+      spGet(lt(LIST_L2) + '/items?$select=*&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
       state.usersReady
         ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
         : Promise.resolve({ value: [] }),
