@@ -552,29 +552,17 @@
     });
   }
 
-  // リセット(管理対象リストを空にする)
+  // リセット(管理対象リストを空にする。マスタを残すか含めるか選択)
   async function resetFlow() {
-    const ok = await modal({
-      title: 'リストを空にする',
-      message: '「' + LIST_USERS + '」「' + LIST_L1 + '」「' + LIST_L2 + '」「' + LIST_AUDIT +
-        '」の全アイテムを削除して空にします。この操作は元に戻せません(先にバックアップ取得を推奨)。',
-      okLabel: '空にする',
-      danger: true,
-    });
-    if (!ok) return;
-    const ok2 = await modal({
-      title: '最終確認',
-      message: '本当に全アイテムを削除しますか？ この操作は取り消せません。',
-      okLabel: '削除を実行',
-      danger: true,
-    });
-    if (!ok2) return;
+    const choice = await openResetModal();
+    if (!choice) return;
+    const label = choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)';
     run('リセット', async () => {
-      auditNote('管理対象リストの全アイテムを削除(リセット)');
-      const s = await resetAllItems(setStatus);
+      auditNote('リストのリセット: ' + label);
+      const s = await resetAllItems(setStatus, choice);
       await reload();
-      toast('ok', 'リストを空にしました(削除: ' +
-        Object.entries(s).map(([, n]) => n).reduce((a, b) => a + b, 0) + '件)');
+      const total = Object.values(s).reduce((a, b) => a + b, 0);
+      toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件)');
     });
   }
 

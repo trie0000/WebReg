@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-bff0f9f0" !== 'undefined' ? "0.1.0-bff0f9f0" : 'dev';
+const BUILD = typeof "0.1.0-429d769a" !== 'undefined' ? "0.1.0-429d769a" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -3204,20 +3204,76 @@ lists[key] = await dumpList(title);
 }
 return { version: BACKUP_VERSION, exportedAt: stamp || '', prefix: listPrefix(), lists };
 }
-async function resetAllItems(log) {
+async function resetAllItems(log, opts) {
+const includeMasters = !!(opts && opts.includeMasters);
+const targets = [['利用者一覧', LIST_USERS], ['利用者一覧(英語)', LIST_USERS_EN]];
+if (includeMasters) targets.push([LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1]);
 const summary = {};
-for (const [label, title] of [[LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1],
-['利用者一覧', LIST_USERS], ['操作ログ', LIST_AUDIT]]) {
-if (!(await listId(title))) { summary[title] = 0; continue; }
+for (const [label, title] of targets) {
+if (!(await listId(title))) { summary[label] = 0; continue; }
 const items = (await spGet(lt(title) + '/items?$select=Id&$top=5000')).value || [];
 let n = 0;
 for (const it of items) {
 log(label + 'を空にしています… (' + (++n) + '/' + items.length + ')');
 try { await spDelete(lt(title) + '/items(' + it.Id + ')'); } catch { }
 }
-summary[title] = items.length;
+summary[label] = items.length;
+}
+if (includeMasters) {
+log('派生列を整理中…');
+try { await dropDerivedUserColumns(); } catch { }
 }
 return summary;
+}
+function openResetModal() {
+return new Promise((resolve) => {
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="リストのリセット">
+          <h4>リストのリセット</h4>
+          <span class="pr-note">SP 上のリストのアイテムを削除して空にします(リストの構造は残ります)。
+            この操作は元に戻せません。先に「バックアップ取得」を推奨します。操作ログ・共通設定は残ります。</span>
+          <div class="pr-field" style="margin-top:var(--s-3)">
+            <label class="pr-check"><input type="radio" name="rst-mode" value="users" checked>
+              利用者データのみ削除(マスタは残す)</label>
+            <span class="pr-note" style="margin-left:24px">利用者一覧 / 利用者一覧(英語)を空にします。${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタは保持。</span>
+            <label class="pr-check" style="margin-top:var(--s-2)"><input type="radio" name="rst-mode" value="all">
+              マスタも含めて全削除</label>
+            <span class="pr-note" style="margin-left:24px">利用者データに加えて${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタも削除し、派生列も一掃します。</span>
+          </div>
+          <label class="pr-check" style="margin-top:var(--s-3)"><input type="checkbox" id="rst-confirm">
+            上記を理解し、削除を実行します</label>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--danger" data-mact="ok" disabled>削除を実行</button>
+          </div>
+        </div>
+      </div>`);
+const okBtn = back.querySelector('[data-mact="ok"]');
+back.querySelector('#rst-confirm').addEventListener('change', (e) => { okBtn.disabled = !e.target.checked; });
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) { if (downOnBack) done(null); return; }
+const b = e.target.closest('[data-mact]');
+if (!b) return;
+if (b.dataset.mact !== 'ok') { done(null); return; }
+if (!back.querySelector('#rst-confirm').checked) return;
+const mode = back.querySelector('input[name="rst-mode"]:checked').value;
+done({ includeMasters: mode === 'all' });
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+});
 }
 async function restoreBackup(state, backup, log, reflectFn) {
 if (!backup || !backup.lists) throw new Error('バックアップ形式が不正です');
@@ -3389,19 +3445,24 @@ return '<div class="pr-assign-row"><span>' + esc(x.Title) +
                 <span class="pr-note">国内=日本語リスト / 海外=英語リスト / 両方=両方に登録。「${esc(LIST_COMMON)}」に保存(全員共有)。</span>
               </div>
               <div class="pr-field">
-                <label>データ管理(バックアップ / リストア / リセット)</label>
+                <label>データ管理(バックアップ / リストア)</label>
                 <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
                   <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
                   <button class="pr-btn pr-btn--secondary" data-sact="restore">リストア(復元)</button>
-                  <button class="pr-btn pr-btn--danger" data-sact="reset">リストを空にする</button>
                 </div>
                 <span class="pr-note">バックアップ=管理用を含む全リストの内容・集計式・条件式・書式をJSONで保存。
-                  リストア=そのJSONから復元(空のリストからでも戻せます)。
-                  リセット=管理対象リストの全アイテムを削除して空にします(構造は残ります)。</span>
+                  リストア=そのJSONから復元(空のリストからでも戻せます)。リセットは「開発者」タブにあります。</span>
               </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
               <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(srcInfo)}</code></div>
+              <div class="pr-field">
+                <label>リストのリセット</label>
+                <button class="pr-btn pr-btn--danger" data-sact="reset">リストをリセット…</button>
+                <span class="pr-note">SP 上のリストのアイテムを削除して空にします(構造は残る)。
+                  「利用者データのみ(マスタは残す)」か「マスタも含めて全削除」を選べます。操作ログ・共通設定は残ります。
+                  元に戻せないため、先にバックアップ取得を推奨。</span>
+              </div>
               <div class="pr-field">
                 <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
                 <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
@@ -5095,27 +5156,15 @@ toast('ok', 'リストアが完了しました(利用者 ' + r.users + '件)');
 });
 }
 async function resetFlow() {
-const ok = await modal({
-title: 'リストを空にする',
-message: '「' + LIST_USERS + '」「' + LIST_L1 + '」「' + LIST_L2 + '」「' + LIST_AUDIT +
-'」の全アイテムを削除して空にします。この操作は元に戻せません(先にバックアップ取得を推奨)。',
-okLabel: '空にする',
-danger: true,
-});
-if (!ok) return;
-const ok2 = await modal({
-title: '最終確認',
-message: '本当に全アイテムを削除しますか？ この操作は取り消せません。',
-okLabel: '削除を実行',
-danger: true,
-});
-if (!ok2) return;
+const choice = await openResetModal();
+if (!choice) return;
+const label = choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)';
 run('リセット', async () => {
-auditNote('管理対象リストの全アイテムを削除(リセット)');
-const s = await resetAllItems(setStatus);
+auditNote('リストのリセット: ' + label);
+const s = await resetAllItems(setStatus, choice);
 await reload();
-toast('ok', 'リストを空にしました(削除: ' +
-Object.entries(s).map(([, n]) => n).reduce((a, b) => a + b, 0) + '件)');
+const total = Object.values(s).reduce((a, b) => a + b, 0);
+toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件)');
 });
 }
 async function userBulkFlow() {

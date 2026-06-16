@@ -71,19 +71,24 @@ function openSettingsModalInner(state, resolve, handlers) {
                 <span class="pr-note">国内=日本語リスト / 海外=英語リスト / 両方=両方に登録。「${esc(LIST_COMMON)}」に保存(全員共有)。</span>
               </div>
               <div class="pr-field">
-                <label>データ管理(バックアップ / リストア / リセット)</label>
+                <label>データ管理(バックアップ / リストア)</label>
                 <div style="display:flex; gap:var(--s-3); flex-wrap:wrap">
                   <button class="pr-btn pr-btn--secondary" data-sact="backup">バックアップ取得</button>
                   <button class="pr-btn pr-btn--secondary" data-sact="restore">リストア(復元)</button>
-                  <button class="pr-btn pr-btn--danger" data-sact="reset">リストを空にする</button>
                 </div>
                 <span class="pr-note">バックアップ=管理用を含む全リストの内容・集計式・条件式・書式をJSONで保存。
-                  リストア=そのJSONから復元(空のリストからでも戻せます)。
-                  リセット=管理対象リストの全アイテムを削除して空にします(構造は残ります)。</span>
+                  リストア=そのJSONから復元(空のリストからでも戻せます)。リセットは「開発者」タブにあります。</span>
               </div>
             </div>
             <div class="pr-hub-panel" data-hubpanel="dev" style="display:none">
               <div class="pr-kv">バージョン: <code>${esc(BUILD)}</code> / 今回の読込元: <code>${esc(srcInfo)}</code></div>
+              <div class="pr-field">
+                <label>リストのリセット</label>
+                <button class="pr-btn pr-btn--danger" data-sact="reset">リストをリセット…</button>
+                <span class="pr-note">SP 上のリストのアイテムを削除して空にします(構造は残る)。
+                  「利用者データのみ(マスタは残す)」か「マスタも含めて全削除」を選べます。操作ログ・共通設定は残ります。
+                  元に戻せないため、先にバックアップ取得を推奨。</span>
+              </div>
               <div class="pr-field">
                 <label>bundle の配信元(ブックマークレット起動時にどこから本体を読むか)</label>
                 <label class="pr-radio"><input type="radio" name="pr-src" value="sp" ${isLocal ? '' : 'checked'}>
