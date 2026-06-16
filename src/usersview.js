@@ -14,7 +14,7 @@ function activeL2Of(state, l1Title) {
 
 const USERS_GRID_KEY = 'users';
 const selectedUserIds = new Set(); // 再描画を跨いで保持(Spira と同様 module レベル)
-const userFilter = { q: '', changeType: '', permission: '', org1: '', showDeleted: false };
+const userFilter = { q: '', showDeleted: false }; // 列ごとの絞り込みは gridfilter(Excel風オートフィルター)が担う
 
 // ---- 列定義(key は列幅/列順の保存キー) -------------------------------
 const USER_COLS = [
@@ -93,9 +93,7 @@ function visibleUsers(state) {
   const q = f.q.trim().toLowerCase();
   let list = state.users.filter((u) => {
     if (!f.showDeleted && u.SystemDeleted === true) return false;
-    if (f.changeType && u.ChangeType !== f.changeType) return false;
-    if (f.permission && u.Permission !== f.permission) return false;
-    if (f.org1 && u.OrgLevel1 !== f.org1) return false;
+    if (!gridRowPasses(USERS_GRID_KEY, (k) => userCellText(state, USER_COLS.find((c) => c.key === k), u))) return false;
     if (q) {
       const hay = USER_COLS.map((c) => userCellText(state, c, u)).join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -136,18 +134,16 @@ function usersViewHtml(state) {
   const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
   const cols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean);
 
-  const selOpts = (opts, cur) => '<option value="">すべて</option>' +
-    opts.map((o) => '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
-  const org1Opts = state.l1.filter((x) => x.Active !== false).map((x) => x.Title);
-
   // NEW/更新タグは消す(消えるタイミングが分かりにくいため)。論理削除済みの表示だけ残す
   const badgeHtml = (u) => (u.SystemDeleted === true ? '<span class="pr-badge pr-badge--del">削除済</span>' : '');
 
   const thHtml = cols.map((c) => {
     const active = sort.by === c.key;
     const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
-      esc(userColLabel(c)) + arrow + '</th>';
+    const filtered = gridColFiltered(USERS_GRID_KEY, c.key);
+    return '<th class="pr-th-sort' + (active ? ' active' : '') + (filtered ? ' pr-th-filtered' : '') +
+      '" data-col="' + c.key + '">' + esc(userColLabel(c)) + arrow +
+      '<span class="pr-th-funnel">' + ico('filter') + '</span></th>';
   }).join('');
 
   const rowHtml = (u) => `
@@ -173,12 +169,8 @@ function usersViewHtml(state) {
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-ufilter-q" placeholder="検索(全列)" value="${esc(userFilter.q)}">
-      <label class="pr-fwrap"><span>変更区分</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-ct">${selOpts(state.choices.changeType, userFilter.changeType)}</select></label>
-      <label class="pr-fwrap"><span>権限</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-pm">${selOpts(state.choices.permission, userFilter.permission)}</select></label>
-      <label class="pr-fwrap"><span>${esc(LABEL_L1)}</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-o1">${selOpts(org1Opts, userFilter.org1)}</select></label>
+      <span class="pr-note">列名をクリックでその列の値で絞り込み(Excelのオートフィルター)</span>
+      <span style="flex:1"></span>
       <label class="pr-check"><input type="checkbox" id="pr-ufilter-del" ${userFilter.showDeleted ? 'checked' : ''}>削除済も表示</label>
     </div>
     <div class="pr-rows">
@@ -219,39 +211,42 @@ function usersAfterRender(app, state, ctx) {
     },
   });
 
-  // ソート(ヘッダクリック。直前が列順ドラッグなら無視)
-  table.querySelector('thead').addEventListener('click', (e) => {
-    if (table.dataset.dragJustEnded) return;
-    if (e.target.closest('[data-usel-all]')) return;
-    const th = e.target.closest('th[data-col]');
-    if (!th) return;
-    const s = gridSort(USERS_GRID_KEY, 'modified');
-    gridSetSort(USERS_GRID_KEY, th.dataset.col,
-      s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
-    ctx.rerender();
-  });
-
-  // 検索は tbody と件数バーだけ差し替えてフォーカスを保つ
+  // 検索・列フィルターは tbody と件数バーだけ差し替えてフォーカス/メニューを保つ
   const reflow = () => {
     const tmp = document.createElement('div');
     tmp.innerHTML = usersViewHtml(state);
     table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
     app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
   };
+
+  // 列名クリック=その列の値で絞り込み(Excelオートフィルター)。直前が列順ドラッグ/リサイズなら無視
+  table.querySelector('thead').addEventListener('click', (e) => {
+    if (table.dataset.dragJustEnded) return;
+    if (e.target.closest('[data-usel-all]') || e.target.closest('.pr-col-resize')) return;
+    const th = e.target.closest('th[data-col]');
+    if (!th) return;
+    const colKey = th.dataset.col;
+    const col = USER_COLS.find((c) => c.key === colKey);
+    const base = state.users.filter((u) => userFilter.showDeleted || u.SystemDeleted !== true);
+    openGridColMenu({
+      tableKey: USERS_GRID_KEY,
+      colKey,
+      label: userColLabel(col),
+      values: base.map((u) => userCellText(state, col, u)),
+      anchor: th,
+      onSort: (dir) => { gridSetSort(USERS_GRID_KEY, colKey, dir); ctx.rerender(); },
+      onChange: () => { reflow(); th.classList.toggle('pr-th-filtered', gridColFiltered(USERS_GRID_KEY, colKey)); },
+    });
+  });
+
   app.querySelector('#pr-ufilter-q').addEventListener('input', (e) => {
     userFilter.q = e.target.value;
     reflow();
   });
-  const bindSel = (id, prop) => {
-    app.querySelector(id).addEventListener('change', (e) => {
-      userFilter[prop] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-      ctx.rerender();
-    });
-  };
-  bindSel('#pr-ufilter-ct', 'changeType');
-  bindSel('#pr-ufilter-pm', 'permission');
-  bindSel('#pr-ufilter-o1', 'org1');
-  bindSel('#pr-ufilter-del', 'showDeleted');
+  app.querySelector('#pr-ufilter-del').addEventListener('change', (e) => {
+    userFilter.showDeleted = e.target.checked;
+    ctx.rerender();
+  });
 
   // 選択(行クリックと分離)・行クリック=編集
   table.addEventListener('click', (e) => {

@@ -233,6 +233,40 @@ const css = `
 #${ROOT_ID} .pr-utable th.pr-th-sort{ cursor:pointer; }
 #${ROOT_ID} .pr-utable th.pr-th-sort:hover{ background:var(--paper-2-strong); color:var(--ink); }
 #${ROOT_ID} .pr-utable th.active{ color:var(--ink); }
+/* 列フィルター中の見出し: アクセント色 + じょうご(funnel)アイコン */
+#${ROOT_ID} .pr-th-funnel{ display:none; margin-left:4px; vertical-align:-1px; }
+#${ROOT_ID} .pr-th-funnel svg{ width:11px; height:11px; }
+#${ROOT_ID} .pr-utable th.pr-th-filtered{ color:var(--accent); }
+#${ROOT_ID} .pr-utable th.pr-th-filtered .pr-th-funnel{ display:inline-block; }
+
+/* 列ヘッダの値フィルター ポップアップ(Excel オートフィルター相当) */
+#${ROOT_ID} .pr-colmenu{
+  position:fixed; z-index:2147483650; display:flex; flex-direction:column;
+  width:250px; max-height:min(78vh,520px); overflow:hidden; padding:var(--s-3);
+  background:var(--paper); border:1px solid var(--paper-3); border-radius:var(--r-3);
+  box-shadow:var(--shadow-modal); font-size:var(--fs-md); color:var(--ink);
+}
+#${ROOT_ID} .pr-colmenu-head{ font-size:var(--fs-xs); color:var(--ink-3); padding:0 var(--s-2) var(--s-2); }
+#${ROOT_ID} .pr-colmenu-item{
+  display:flex; align-items:center; gap:var(--s-3); padding:var(--s-2) var(--s-2);
+  border-radius:var(--r-2); cursor:pointer; color:var(--ink); border:0; background:transparent;
+  width:100%; text-align:left; font:inherit;
+}
+#${ROOT_ID} .pr-colmenu-item:hover{ background:var(--paper-2-strong); }
+#${ROOT_ID} .pr-colmenu-item input{ flex:none; }
+#${ROOT_ID} .pr-colmenu-item span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#${ROOT_ID} .pr-colmenu-act svg{ width:13px; height:13px; flex:none; color:var(--ink-3); }
+#${ROOT_ID} .pr-colmenu-sep{ height:1px; background:var(--line); margin:var(--s-2) 0; }
+#${ROOT_ID} .pr-colmenu-search{
+  width:100%; box-sizing:border-box; height:28px; margin-bottom:var(--s-2); padding:2px var(--s-3);
+  border:1px solid var(--paper-3); border-radius:var(--r-2); background:var(--paper); color:var(--ink);
+  font:inherit; font-size:var(--fs-sm); outline:none;
+}
+#${ROOT_ID} .pr-colmenu-search:focus{ border-color:var(--accent); }
+#${ROOT_ID} .pr-colmenu-all{ border-bottom:1px solid var(--line); margin-bottom:2px; }
+#${ROOT_ID} .pr-colmenu-vlist{ flex:1 1 auto; min-height:40px; overflow-y:auto; }
+#${ROOT_ID} .pr-colmenu-note{ font-size:var(--fs-xs); color:var(--ink-4); padding:var(--s-2); }
+#${ROOT_ID} .pr-colmenu-foot{ display:flex; align-items:center; gap:var(--s-2); padding-top:var(--s-2); margin-top:var(--s-1); border-top:1px solid var(--line); }
 #${ROOT_ID} .pr-utable td{
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
   /* 列幅を内容より狭くした場合は折り返して全文表示(省略しない) */

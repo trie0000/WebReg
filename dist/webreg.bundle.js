@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-7f959e48" !== 'undefined' ? "0.1.0-7f959e48" : 'dev';
+const BUILD = typeof "0.1.0-bff0f9f0" !== 'undefined' ? "0.1.0-bff0f9f0" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -1195,6 +1195,7 @@ const ICONS = {
 'copy': '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
 'key': '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
 'external': '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/>',
+'filter': '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
 };
 const ico = (n) => '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"' +
 ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
@@ -1421,6 +1422,39 @@ const css = `
 #${ROOT_ID} .pr-utable th.pr-th-sort{ cursor:pointer; }
 #${ROOT_ID} .pr-utable th.pr-th-sort:hover{ background:var(--paper-2-strong); color:var(--ink); }
 #${ROOT_ID} .pr-utable th.active{ color:var(--ink); }
+/* 列フィルター中の見出し: アクセント色 + じょうご(funnel)アイコン */
+#${ROOT_ID} .pr-th-funnel{ display:none; margin-left:4px; vertical-align:-1px; }
+#${ROOT_ID} .pr-th-funnel svg{ width:11px; height:11px; }
+#${ROOT_ID} .pr-utable th.pr-th-filtered{ color:var(--accent); }
+#${ROOT_ID} .pr-utable th.pr-th-filtered .pr-th-funnel{ display:inline-block; }
+/* 列ヘッダの値フィルター ポップアップ(Excel オートフィルター相当) */
+#${ROOT_ID} .pr-colmenu{
+  position:fixed; z-index:2147483650; display:flex; flex-direction:column;
+  width:250px; max-height:min(78vh,520px); overflow:hidden; padding:var(--s-3);
+  background:var(--paper); border:1px solid var(--paper-3); border-radius:var(--r-3);
+  box-shadow:var(--shadow-modal); font-size:var(--fs-md); color:var(--ink);
+}
+#${ROOT_ID} .pr-colmenu-head{ font-size:var(--fs-xs); color:var(--ink-3); padding:0 var(--s-2) var(--s-2); }
+#${ROOT_ID} .pr-colmenu-item{
+  display:flex; align-items:center; gap:var(--s-3); padding:var(--s-2) var(--s-2);
+  border-radius:var(--r-2); cursor:pointer; color:var(--ink); border:0; background:transparent;
+  width:100%; text-align:left; font:inherit;
+}
+#${ROOT_ID} .pr-colmenu-item:hover{ background:var(--paper-2-strong); }
+#${ROOT_ID} .pr-colmenu-item input{ flex:none; }
+#${ROOT_ID} .pr-colmenu-item span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#${ROOT_ID} .pr-colmenu-act svg{ width:13px; height:13px; flex:none; color:var(--ink-3); }
+#${ROOT_ID} .pr-colmenu-sep{ height:1px; background:var(--line); margin:var(--s-2) 0; }
+#${ROOT_ID} .pr-colmenu-search{
+  width:100%; box-sizing:border-box; height:28px; margin-bottom:var(--s-2); padding:2px var(--s-3);
+  border:1px solid var(--paper-3); border-radius:var(--r-2); background:var(--paper); color:var(--ink);
+  font:inherit; font-size:var(--fs-sm); outline:none;
+}
+#${ROOT_ID} .pr-colmenu-search:focus{ border-color:var(--accent); }
+#${ROOT_ID} .pr-colmenu-all{ border-bottom:1px solid var(--line); margin-bottom:2px; }
+#${ROOT_ID} .pr-colmenu-vlist{ flex:1 1 auto; min-height:40px; overflow-y:auto; }
+#${ROOT_ID} .pr-colmenu-note{ font-size:var(--fs-xs); color:var(--ink-4); padding:var(--s-2); }
+#${ROOT_ID} .pr-colmenu-foot{ display:flex; align-items:center; gap:var(--s-2); padding-top:var(--s-2); margin-top:var(--s-1); border-top:1px solid var(--line); }
 #${ROOT_ID} .pr-utable td{
   padding:var(--s-4) var(--s-5); border-bottom:1px solid var(--line);
   /* 列幅を内容より狭くした場合は折り返して全文表示(省略しない) */
@@ -2033,6 +2067,134 @@ opts.onReorder(null, null);
 });
 });
 }
+const GRID_F = 'webreg.filter.';
+const FILTER_BLANK = '(空白)';
+const FILTER_CAP = 2000;
+function gridFilters(tableKey) {
+try { return JSON.parse(localStorage.getItem(GRID_F + tableKey) || '{}') || {}; } catch (e) { return {}; }
+}
+function gridColExcluded(tableKey, colKey) {
+return gridFilters(tableKey)[colKey] || [];
+}
+function gridSetExcluded(tableKey, colKey, excluded) {
+const all = gridFilters(tableKey);
+if (excluded && excluded.length) all[colKey] = excluded; else delete all[colKey];
+try { localStorage.setItem(GRID_F + tableKey, JSON.stringify(all)); } catch (e) { }
+}
+function gridColFiltered(tableKey, colKey) {
+return gridColExcluded(tableKey, colKey).length > 0;
+}
+function gridRowPasses(tableKey, valueOf) {
+const all = gridFilters(tableKey);
+for (const colKey in all) {
+const ex = all[colKey];
+if (!ex || !ex.length) continue;
+if (ex.indexOf(valueOf(colKey)) !== -1) return false;
+}
+return true;
+}
+let _colMenu = null;
+function closeGridColMenu() {
+if (_colMenu) {
+document.removeEventListener('mousedown', _colMenu._onDoc, true);
+document.removeEventListener('keydown', _colMenu._onKey, true);
+window.removeEventListener('resize', _colMenu._onWin, true);
+_colMenu.remove();
+_colMenu = null;
+}
+}
+function openGridColMenu(opts) {
+closeGridColMenu();
+const distinct = Array.from(new Set(opts.values))
+.sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+const capped = distinct.slice(0, FILTER_CAP);
+const ex = new Set(gridColExcluded(opts.tableKey, opts.colKey));
+const disp = (v) => (v === '' ? FILTER_BLANK : v);
+let html = '';
+if (opts.onSort) {
+html += '<button class="pr-colmenu-item pr-colmenu-act" data-cm="asc">' +
+ico('chevron-up') + '<span>昇順で並べ替え</span></button>';
+html += '<button class="pr-colmenu-item pr-colmenu-act" data-cm="desc">' +
+ico('chevron-down') + '<span>降順で並べ替え</span></button>';
+html += '<div class="pr-colmenu-sep"></div>';
+}
+html += '<div class="pr-colmenu-head">' + esc(opts.label) + ' の値で絞り込み</div>';
+html += '<input class="pr-colmenu-search" type="text" placeholder="値を検索">';
+html += '<label class="pr-colmenu-item pr-colmenu-all"><input type="checkbox"><span>(すべて選択)</span></label>';
+html += '<div class="pr-colmenu-vlist"></div>';
+if (distinct.length > capped.length) {
+html += '<div class="pr-colmenu-note">値が多いため先頭 ' + capped.length + ' 件のみ</div>';
+}
+html += '<div class="pr-colmenu-foot">' +
+'<button class="pr-btn pr-btn--sm pr-btn--ghost" data-cm="clear">フィルタ解除</button>' +
+'<span style="flex:1"></span>' +
+'<button class="pr-btn pr-btn--sm pr-btn--primary" data-cm="close">閉じる</button></div>';
+const menu = el('<div class="pr-colmenu" role="dialog" aria-label="列フィルター"></div>');
+menu.innerHTML = html;
+const vlist = menu.querySelector('.pr-colmenu-vlist');
+const search = menu.querySelector('.pr-colmenu-search');
+const allCb = menu.querySelector('.pr-colmenu-all input');
+const apply = () => {
+gridSetExcluded(opts.tableKey, opts.colKey, [...ex]);
+opts.onChange();
+};
+const renderList = (query) => {
+const ql = (query || '').trim().toLowerCase();
+const shown = capped.filter((v) => !ql || disp(v).toLowerCase().indexOf(ql) !== -1);
+vlist.innerHTML = shown.map((v) =>
+'<label class="pr-colmenu-item"><input type="checkbox" data-v="' + esc(v) + '"' +
+(ex.has(v) ? '' : ' checked') + '><span>' + esc(disp(v)) + '</span></label>').join('') ||
+'<div class="pr-colmenu-note">該当する値がありません</div>';
+const checked = shown.filter((v) => !ex.has(v)).length;
+allCb.checked = shown.length > 0 && checked === shown.length;
+allCb.indeterminate = checked > 0 && checked < shown.length;
+menu._shown = shown;
+};
+renderList('');
+vlist.addEventListener('change', (e) => {
+const cb = e.target.closest('input[data-v]');
+if (!cb) return;
+const v = cb.dataset.v;
+if (cb.checked) ex.delete(v); else ex.add(v);
+apply();
+renderList(search.value);
+});
+allCb.addEventListener('change', () => {
+const shown = menu._shown || [];
+if (allCb.checked) shown.forEach((v) => ex.delete(v));
+else shown.forEach((v) => ex.add(v));
+apply();
+renderList(search.value);
+});
+search.addEventListener('input', () => renderList(search.value));
+menu.addEventListener('click', (e) => {
+const b = e.target.closest('[data-cm]');
+if (!b) return;
+const cm = b.dataset.cm;
+if (cm === 'asc' || cm === 'desc') { closeGridColMenu(); opts.onSort(cm); return; }
+if (cm === 'clear') { ex.clear(); apply(); renderList(search.value); return; }
+if (cm === 'close') closeGridColMenu();
+});
+document.getElementById(ROOT_ID).appendChild(menu);
+_colMenu = menu;
+const place = () => {
+const r = opts.anchor.getBoundingClientRect();
+const mw = menu.offsetWidth, mh = menu.offsetHeight;
+let left = r.left, top = r.bottom + 2;
+if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 2);
+menu.style.left = Math.round(left) + 'px';
+menu.style.top = Math.round(top) + 'px';
+};
+place();
+menu._onDoc = (e) => { if (!menu.contains(e.target) && !opts.anchor.contains(e.target)) closeGridColMenu(); };
+menu._onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeGridColMenu(); } };
+menu._onWin = () => closeGridColMenu();
+document.addEventListener('mousedown', menu._onDoc, true);
+document.addEventListener('keydown', menu._onKey, true);
+window.addEventListener('resize', menu._onWin, true);
+search.focus();
+}
 function activeL2Of(state, l1Title) {
 const l1 = state.l1.find((x) => x.Title === l1Title && x.Active !== false);
 if (!l1) return [];
@@ -2042,7 +2204,7 @@ return state.l2
 }
 const USERS_GRID_KEY = 'users';
 const selectedUserIds = new Set();
-const userFilter = { q: '', changeType: '', permission: '', org1: '', showDeleted: false };
+const userFilter = { q: '', showDeleted: false };
 const USER_COLS = [
 { key: 'name', label: '利用者名', w: '160px', val: (u) => u.Title || '' },
 { key: 'company', label: '会社名', w: '140px', val: (u) => u.Company || '' },
@@ -2107,9 +2269,7 @@ const f = userFilter;
 const q = f.q.trim().toLowerCase();
 let list = state.users.filter((u) => {
 if (!f.showDeleted && u.SystemDeleted === true) return false;
-if (f.changeType && u.ChangeType !== f.changeType) return false;
-if (f.permission && u.Permission !== f.permission) return false;
-if (f.org1 && u.OrgLevel1 !== f.org1) return false;
+if (!gridRowPasses(USERS_GRID_KEY, (k) => userCellText(state, USER_COLS.find((c) => c.key === k), u))) return false;
 if (q) {
 const hay = USER_COLS.map((c) => userCellText(state, c, u)).join(' ').toLowerCase();
 if (!hay.includes(q)) return false;
@@ -2146,15 +2306,14 @@ const sel = selectedUserIds.size;
 const sort = gridSort(USERS_GRID_KEY, 'modified');
 const order = gridResolveOrder(USERS_GRID_KEY, USER_COLS.map((c) => c.key));
 const cols = order.map((k) => USER_COLS.find((c) => c.key === k)).filter(Boolean);
-const selOpts = (opts, cur) => '<option value="">すべて</option>' +
-opts.map((o) => '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
-const org1Opts = state.l1.filter((x) => x.Active !== false).map((x) => x.Title);
 const badgeHtml = (u) => (u.SystemDeleted === true ? '<span class="pr-badge pr-badge--del">削除済</span>' : '');
 const thHtml = cols.map((c) => {
 const active = sort.by === c.key;
 const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
-esc(userColLabel(c)) + arrow + '</th>';
+const filtered = gridColFiltered(USERS_GRID_KEY, c.key);
+return '<th class="pr-th-sort' + (active ? ' active' : '') + (filtered ? ' pr-th-filtered' : '') +
+'" data-col="' + c.key + '">' + esc(userColLabel(c)) + arrow +
+'<span class="pr-th-funnel">' + ico('filter') + '</span></th>';
 }).join('');
 const rowHtml = (u) => `
     <tr data-uid="${u.Id}" class="${u.SystemDeleted === true ? 'pr-udel' : ''}">
@@ -2178,12 +2337,8 @@ return `
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-ufilter-q" placeholder="検索(全列)" value="${esc(userFilter.q)}">
-      <label class="pr-fwrap"><span>変更区分</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-ct">${selOpts(state.choices.changeType, userFilter.changeType)}</select></label>
-      <label class="pr-fwrap"><span>権限</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-pm">${selOpts(state.choices.permission, userFilter.permission)}</select></label>
-      <label class="pr-fwrap"><span>${esc(LABEL_L1)}</span>
-        <select class="pr-input pr-fsel" id="pr-ufilter-o1">${selOpts(org1Opts, userFilter.org1)}</select></label>
+      <span class="pr-note">列名をクリックでその列の値で絞り込み(Excelのオートフィルター)</span>
+      <span style="flex:1"></span>
       <label class="pr-check"><input type="checkbox" id="pr-ufilter-del" ${userFilter.showDeleted ? 'checked' : ''}>削除済も表示</label>
     </div>
     <div class="pr-rows">
@@ -2219,36 +2374,38 @@ gridWriteOrder(USERS_GRID_KEY, cur);
 ctx.rerender();
 },
 });
-table.querySelector('thead').addEventListener('click', (e) => {
-if (table.dataset.dragJustEnded) return;
-if (e.target.closest('[data-usel-all]')) return;
-const th = e.target.closest('th[data-col]');
-if (!th) return;
-const s = gridSort(USERS_GRID_KEY, 'modified');
-gridSetSort(USERS_GRID_KEY, th.dataset.col,
-s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
-ctx.rerender();
-});
 const reflow = () => {
 const tmp = document.createElement('div');
 tmp.innerHTML = usersViewHtml(state);
 table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
 app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
 };
+table.querySelector('thead').addEventListener('click', (e) => {
+if (table.dataset.dragJustEnded) return;
+if (e.target.closest('[data-usel-all]') || e.target.closest('.pr-col-resize')) return;
+const th = e.target.closest('th[data-col]');
+if (!th) return;
+const colKey = th.dataset.col;
+const col = USER_COLS.find((c) => c.key === colKey);
+const base = state.users.filter((u) => userFilter.showDeleted || u.SystemDeleted !== true);
+openGridColMenu({
+tableKey: USERS_GRID_KEY,
+colKey,
+label: userColLabel(col),
+values: base.map((u) => userCellText(state, col, u)),
+anchor: th,
+onSort: (dir) => { gridSetSort(USERS_GRID_KEY, colKey, dir); ctx.rerender(); },
+onChange: () => { reflow(); th.classList.toggle('pr-th-filtered', gridColFiltered(USERS_GRID_KEY, colKey)); },
+});
+});
 app.querySelector('#pr-ufilter-q').addEventListener('input', (e) => {
 userFilter.q = e.target.value;
 reflow();
 });
-const bindSel = (id, prop) => {
-app.querySelector(id).addEventListener('change', (e) => {
-userFilter[prop] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+app.querySelector('#pr-ufilter-del').addEventListener('change', (e) => {
+userFilter.showDeleted = e.target.checked;
 ctx.rerender();
 });
-};
-bindSel('#pr-ufilter-ct', 'changeType');
-bindSel('#pr-ufilter-pm', 'permission');
-bindSel('#pr-ufilter-o1', 'org1');
-bindSel('#pr-ufilter-del', 'showDeleted');
 table.addEventListener('click', (e) => {
 const chkAll = e.target.closest('[data-usel-all]');
 if (chkAll) {
@@ -2513,6 +2670,7 @@ const q = f.q.trim().toLowerCase();
 let list = state.users.filter((u) => {
 if (!isReqTarget(u)) return false;
 if (f.hideVerified && reqStatusOf(u) === WORK_STATUS_DONE) return false;
+if (!gridRowPasses(REQS_GRID_KEY, (k) => reqCellText(state, REQ_COLS.find((c) => c.key === k), u))) return false;
 if (q) {
 const hay = REQ_COLS.map((c) => reqCellText(state, c, u)).join(' ').toLowerCase();
 if (!hay.includes(q)) return false;
@@ -2546,8 +2704,10 @@ const sel = selectedReqIds.size;
 const thHtml = cols.map((c) => {
 const active = sort.by === c.key;
 const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
-esc(reqColLabel(c)) + arrow + '</th>';
+const filtered = gridColFiltered(REQS_GRID_KEY, c.key);
+return '<th class="pr-th-sort' + (active ? ' active' : '') + (filtered ? ' pr-th-filtered' : '') +
+'" data-col="' + c.key + '">' + esc(reqColLabel(c)) + arrow +
+'<span class="pr-th-funnel">' + ico('filter') + '</span></th>';
 }).join('');
 const statusCell = (u) => {
 const cur = reqStatusOf(u);
@@ -2579,6 +2739,8 @@ return `
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-rfilter-q" placeholder="検索(全列)" value="${esc(reqFilter.q)}">
+      <span class="pr-note">列名をクリックでその列の値で絞り込み(Excelのオートフィルター)</span>
+      <span style="flex:1"></span>
       <label class="pr-check"><input type="checkbox" id="pr-rfilter-verified" ${reqFilter.hideVerified ? 'checked' : ''}>結果確認済みを隠す</label>
     </div>
     <div class="pr-rows">
@@ -2614,22 +2776,32 @@ gridWriteOrder(REQS_GRID_KEY, cur);
 ctx.rerender();
 },
 });
-table.querySelector('thead').addEventListener('click', (e) => {
-if (table.dataset.dragJustEnded) return;
-if (e.target.closest('[data-rsel-all]')) return;
-const th = e.target.closest('th[data-col]');
-if (!th) return;
-const s = gridSort(REQS_GRID_KEY, 'modified');
-gridSetSort(REQS_GRID_KEY, th.dataset.col,
-s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
-ctx.rerender();
-});
-app.querySelector('#pr-rfilter-q').addEventListener('input', (e) => {
-reqFilter.q = e.target.value;
+const reflow = () => {
 const tmp = document.createElement('div');
 tmp.innerHTML = reqViewHtml(state);
 table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
 app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
+};
+table.querySelector('thead').addEventListener('click', (e) => {
+if (table.dataset.dragJustEnded) return;
+if (e.target.closest('[data-rsel-all]') || e.target.closest('.pr-col-resize')) return;
+const th = e.target.closest('th[data-col]');
+if (!th) return;
+const colKey = th.dataset.col;
+const col = REQ_COLS.find((c) => c.key === colKey);
+openGridColMenu({
+tableKey: REQS_GRID_KEY,
+colKey,
+label: reqColLabel(col),
+values: state.users.filter(isReqTarget).map((u) => reqCellText(state, col, u)),
+anchor: th,
+onSort: (dir) => { gridSetSort(REQS_GRID_KEY, colKey, dir); ctx.rerender(); },
+onChange: () => { reflow(); th.classList.toggle('pr-th-filtered', gridColFiltered(REQS_GRID_KEY, colKey)); },
+});
+});
+app.querySelector('#pr-rfilter-q').addEventListener('input', (e) => {
+reqFilter.q = e.target.value;
+reflow();
 });
 app.querySelector('#pr-rfilter-verified').addEventListener('change', (e) => {
 reqFilter.hideVerified = e.target.checked;

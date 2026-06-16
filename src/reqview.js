@@ -40,6 +40,7 @@ function visibleReqs(state) {
   let list = state.users.filter((u) => {
     if (!isReqTarget(u)) return false;
     if (f.hideVerified && reqStatusOf(u) === WORK_STATUS_DONE) return false;
+    if (!gridRowPasses(REQS_GRID_KEY, (k) => reqCellText(state, REQ_COLS.find((c) => c.key === k), u))) return false;
     if (q) {
       const hay = REQ_COLS.map((c) => reqCellText(state, c, u)).join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -79,8 +80,10 @@ function reqViewHtml(state) {
   const thHtml = cols.map((c) => {
     const active = sort.by === c.key;
     const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return '<th class="pr-th-sort' + (active ? ' active' : '') + '" data-col="' + c.key + '">' +
-      esc(reqColLabel(c)) + arrow + '</th>';
+    const filtered = gridColFiltered(REQS_GRID_KEY, c.key);
+    return '<th class="pr-th-sort' + (active ? ' active' : '') + (filtered ? ' pr-th-filtered' : '') +
+      '" data-col="' + c.key + '">' + esc(reqColLabel(c)) + arrow +
+      '<span class="pr-th-funnel">' + ico('filter') + '</span></th>';
   }).join('');
 
   // ステータスは色分けチップ風のインラインselect(その場で直接変更できる)
@@ -115,6 +118,8 @@ function reqViewHtml(state) {
     </div>
     <div class="pr-toolbar pr-toolbar--users">
       <input type="text" class="pr-input" id="pr-rfilter-q" placeholder="検索(全列)" value="${esc(reqFilter.q)}">
+      <span class="pr-note">列名をクリックでその列の値で絞り込み(Excelのオートフィルター)</span>
+      <span style="flex:1"></span>
       <label class="pr-check"><input type="checkbox" id="pr-rfilter-verified" ${reqFilter.hideVerified ? 'checked' : ''}>結果確認済みを隠す</label>
     </div>
     <div class="pr-rows">
@@ -153,23 +158,35 @@ function reqAfterRender(app, state, ctx) {
     },
   });
 
-  table.querySelector('thead').addEventListener('click', (e) => {
-    if (table.dataset.dragJustEnded) return;
-    if (e.target.closest('[data-rsel-all]')) return;
-    const th = e.target.closest('th[data-col]');
-    if (!th) return;
-    const s = gridSort(REQS_GRID_KEY, 'modified');
-    gridSetSort(REQS_GRID_KEY, th.dataset.col,
-      s.by === th.dataset.col ? (s.dir === 'asc' ? 'desc' : 'asc') : (th.dataset.col === 'modified' ? 'desc' : 'asc'));
-    ctx.rerender();
-  });
-
-  app.querySelector('#pr-rfilter-q').addEventListener('input', (e) => {
-    reqFilter.q = e.target.value;
+  const reflow = () => {
     const tmp = document.createElement('div');
     tmp.innerHTML = reqViewHtml(state);
     table.querySelector('tbody').replaceWith(tmp.querySelector('tbody'));
     app.querySelector('.pr-sub--users').replaceWith(tmp.querySelector('.pr-sub--users'));
+  };
+
+  // 列名クリック=その列の値で絞り込み(Excelオートフィルター)。直前が列順ドラッグ/リサイズなら無視
+  table.querySelector('thead').addEventListener('click', (e) => {
+    if (table.dataset.dragJustEnded) return;
+    if (e.target.closest('[data-rsel-all]') || e.target.closest('.pr-col-resize')) return;
+    const th = e.target.closest('th[data-col]');
+    if (!th) return;
+    const colKey = th.dataset.col;
+    const col = REQ_COLS.find((c) => c.key === colKey);
+    openGridColMenu({
+      tableKey: REQS_GRID_KEY,
+      colKey,
+      label: reqColLabel(col),
+      values: state.users.filter(isReqTarget).map((u) => reqCellText(state, col, u)),
+      anchor: th,
+      onSort: (dir) => { gridSetSort(REQS_GRID_KEY, colKey, dir); ctx.rerender(); },
+      onChange: () => { reflow(); th.classList.toggle('pr-th-filtered', gridColFiltered(REQS_GRID_KEY, colKey)); },
+    });
+  });
+
+  app.querySelector('#pr-rfilter-q').addEventListener('input', (e) => {
+    reqFilter.q = e.target.value;
+    reflow();
   });
   app.querySelector('#pr-rfilter-verified').addEventListener('change', (e) => {
     reqFilter.hideVerified = e.target.checked;
