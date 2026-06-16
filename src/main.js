@@ -42,12 +42,20 @@
     state.usersReady = !!(await listId(LIST_USERS));
   }
 
+  // 組織区分2の読込。lookup(Level1)を $expand する場合は $select に Level1/Id を明示する必要がある(実機要件)。
+  // 一方 TitleEn(英語名)列は英語機能より前の既存リストには無く、明示すると 400 になる。
+  // そこで TitleEn 付きで試し、無い列で 400 になったら TitleEn を外して再取得する(両構文とも実機で確実に通る)。
+  async function loadL2() {
+    const sel = (en) => lt(LIST_L2) + '/items?$select=Id,Title,' + (en ? 'TitleEn,' : '') +
+      'SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999';
+    try { return await spGet(sel(true)); } catch { return await spGet(sel(false)); }
+  }
+
   async function loadAll() {
     const [r1, r2, ru] = await Promise.all([
       // $select=* : 権限グループ割当列(PermRead/PermEdit。未作成でも可)も読む
       spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-      // $select=* : 英語名列(TitleEn)が未作成の既存リストでも落ちないようにする(列を明示指定すると 400)
-      spGet(lt(LIST_L2) + '/items?$select=*&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+      loadL2(),
       state.usersReady
         ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
         : Promise.resolve({ value: [] }),

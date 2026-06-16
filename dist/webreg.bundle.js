@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-4508bc22" !== 'undefined' ? "0.1.0-4508bc22" : 'dev';
+const BUILD = typeof "0.1.0-69ca1cbb" !== 'undefined' ? "0.1.0-69ca1cbb" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -4706,10 +4706,15 @@ async function checkReady() {
 state.ready = !!(await listId(LIST_L1)) && !!(await listId(LIST_L2));
 state.usersReady = !!(await listId(LIST_USERS));
 }
+async function loadL2() {
+const sel = (en) => lt(LIST_L2) + '/items?$select=Id,Title,' + (en ? 'TitleEn,' : '') +
+'SortOrder,Active,Level1/Id&$expand=Level1&$orderby=SortOrder,Id&$top=4999';
+try { return await spGet(sel(true)); } catch { return await spGet(sel(false)); }
+}
 async function loadAll() {
 const [r1, r2, ru] = await Promise.all([
 spGet(lt(LIST_L1) + '/items?$select=*&$orderby=SortOrder,Id&$top=4999'),
-spGet(lt(LIST_L2) + '/items?$select=*&$expand=Level1&$orderby=SortOrder,Id&$top=4999'),
+loadL2(),
 state.usersReady
 ? spGet(lt(LIST_USERS) + '/items?$select=*&$orderby=Id desc&$top=999')
 : Promise.resolve({ value: [] }),
