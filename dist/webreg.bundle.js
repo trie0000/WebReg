@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-e7be5ade" !== 'undefined' ? "0.1.0-e7be5ade" : 'dev';
+const BUILD = typeof "0.1.0-33d7fde8" !== 'undefined' ? "0.1.0-33d7fde8" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -311,19 +311,23 @@ await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('WorkStatus')",
 try { await addViewFields(LIST_USERS, ['WorkStatus']); } catch { }
 }
 async function ensureUserList(log) {
-if (await listId(LIST_USERS)) return false;
+const created = !(await listId(LIST_USERS));
+if (created) {
 log('「' + LIST_USERS + '」を作成中…');
 await spPost('/_api/web/lists', { Title: LIST_USERS, BaseTemplate: 100, Description: '利用者の権限登録リスト(webreg)' });
+}
 await spMerge(lt(LIST_USERS) + "/fields/getbyinternalnameortitle('Title')", { Title: '利用者名' });
 await ensureField(LIST_USERS, 'Company', '会社名', { FieldTypeKind: 2 });
 await ensureField(LIST_USERS, 'Email', 'メールアドレス', { FieldTypeKind: 2 });
-await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', CHANGE_TYPE_DEFAULTS, true);
-await createChoiceField(LIST_USERS, 'Permission', '権限', PERMISSION_DEFAULTS, true);
+if (!(await fieldExists(LIST_USERS, 'ChangeType'))) await createChoiceField(LIST_USERS, 'ChangeType', '変更区分', CHANGE_TYPE_DEFAULTS, true);
+if (!(await fieldExists(LIST_USERS, 'Permission'))) await createChoiceField(LIST_USERS, 'Permission', '権限', PERMISSION_DEFAULTS, true);
 await ensureField(LIST_USERS, 'Notes', '特記事項', { FieldTypeKind: 3 });
 await ensureField(LIST_USERS, 'AppliedDate', 'システム反映日', { FieldTypeKind: 4 });
 await ensureField(LIST_USERS, 'SystemDeleted', 'システム削除', { FieldTypeKind: 8, DefaultValue: '0' });
+if (created) {
 await addViewFields(LIST_USERS, ['Company', 'Email', 'ChangeType', 'Permission', 'Notes', 'AppliedDate', 'SystemDeleted']);
-return true;
+}
+return created;
 }
 async function syncMastersToUserList(state, log) {
 const l1Order = new Map(state.l1.map((x, i) => [x.Id, i]));
@@ -553,17 +557,15 @@ const l1NameById = new Map(state.l1.map((x) => [x.Id, x.TitleEn || x.Title]));
 if (!(await listId(LIST_USERS_EN))) {
 log('「' + LIST_USERS_EN + '」を作成中…');
 await spPost('/_api/web/lists', { Title: LIST_USERS_EN, BaseTemplate: 100, Description: EN_LIST_DESC });
+}
 await spMerge(lt(LIST_USERS_EN) + "/fields/getbyinternalnameortitle('Title')", { Title: EN_FIELD_TITLE.Title });
 await ensureField(LIST_USERS_EN, 'Company', EN_FIELD_TITLE.Company, { FieldTypeKind: 2 });
 await ensureField(LIST_USERS_EN, 'Email', EN_FIELD_TITLE.Email, { FieldTypeKind: 2 });
-await createChoiceField(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType,
-CHANGE_TYPE_DEFAULTS.map(toEnChangeType), true);
-await createChoiceField(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission,
-PERMISSION_DEFAULTS.map(toEnPermission), true);
+if (!(await fieldExists(LIST_USERS_EN, 'ChangeType'))) await createChoiceField(LIST_USERS_EN, 'ChangeType', EN_FIELD_TITLE.ChangeType, CHANGE_TYPE_DEFAULTS.map(toEnChangeType), true);
+if (!(await fieldExists(LIST_USERS_EN, 'Permission'))) await createChoiceField(LIST_USERS_EN, 'Permission', EN_FIELD_TITLE.Permission, PERMISSION_DEFAULTS.map(toEnPermission), true);
 await ensureField(LIST_USERS_EN, 'Notes', EN_FIELD_TITLE.Notes, { FieldTypeKind: 3 });
 await ensureField(LIST_USERS_EN, 'AppliedDate', EN_FIELD_TITLE.AppliedDate, { FieldTypeKind: 4 });
 await ensureField(LIST_USERS_EN, 'SystemDeleted', EN_FIELD_TITLE.SystemDeleted, { FieldTypeKind: 8, DefaultValue: '0' });
-}
 await ensureField(LIST_USERS_EN, 'L2All', EN_FIELD_TITLE.L2All, { FieldTypeKind: 8, DefaultValue: '0' });
 if (!(await fieldExists(LIST_USERS_EN, 'WorkStatus'))) {
 const xml = "<Field Type='Choice' DisplayName='WorkStatus' Name='WorkStatus' StaticName='WorkStatus'" +
