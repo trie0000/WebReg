@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-d8fa9949" !== 'undefined' ? "0.1.0-d8fa9949" : 'dev';
+const BUILD = typeof "0.1.0-31fccc49" !== 'undefined' ? "0.1.0-31fccc49" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -689,9 +689,6 @@ col = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " +
 return JSON.stringify({
 $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
 elmType: 'div',
-style: { display: "=if(@currentField == '', 'none', 'flex')", 'align-items': 'center' },
-children: [{
-elmType: 'span',
 txtContent: '@currentField',
 style: {
 display: 'inline-block',
@@ -699,9 +696,8 @@ display: 'inline-block',
 padding: '2px 10px',
 'border-radius': '16px',
 'white-space': 'nowrap',
-'background-color': '=' + col,
+'background-color': "=if(@currentField == '', 'transparent', " + col + ')',
 },
-}],
 });
 }
 async function applyListFormatting(state, listTitle, lang) {

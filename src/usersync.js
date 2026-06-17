@@ -489,8 +489,9 @@ async function syncEnglishUserList(state, log) {
 }
 
 // 選択肢→色の「標準コンパクトチップ」列フォーマットを生成する。
-// SP標準のピルと同じ「外側コンテナ div + 内側 span(inline-block)」構造にして、
-// セル幅いっぱいに伸びる(横長)/行が高くなる(縦長)のを防ぐ。空欄はチップを出さない。
+// 単一要素 + inline-block で内容ぴったりのピルにする(横長/縦長にならない)。
+// 重要: display:none やネスト構造は新規/編集フォームの選択肢ピッカーを潰すため使わない。
+// 空欄は背景を透明にして実質チップを出さない(要素自体は残すのでフォームが潰れない)。
 // 色はツール内グリッドの pr-spchip と同じ RGB を背景色に直接指定し、見た目を統一する。
 const CHIP_ADD = 'rgb(202,240,204)';  // 追加/新規(緑)   = pr-spchip--add
 const CHIP_UPD = 'rgb(212,231,246)';  // 更新/変更/更新者(青) = pr-spchip--upd
@@ -504,20 +505,16 @@ function chipFormatterJson(colorMap, deflt) {
   }
   return JSON.stringify({
     $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
-    elmType: 'div', // セル内の外側コンテナ(背景なし)。中の span をピルにする
-    style: { display: "=if(@currentField == '', 'none', 'flex')", 'align-items': 'center' },
-    children: [{
-      elmType: 'span',
-      txtContent: '@currentField',
-      style: {
-        display: 'inline-block',
-        'box-sizing': 'border-box',
-        padding: '2px 10px',
-        'border-radius': '16px',
-        'white-space': 'nowrap',
-        'background-color': '=' + col,
-      },
-    }],
+    elmType: 'div',
+    txtContent: '@currentField',
+    style: {
+      display: 'inline-block',
+      'box-sizing': 'border-box',
+      padding: '2px 10px',
+      'border-radius': '16px',
+      'white-space': 'nowrap',
+      'background-color': "=if(@currentField == '', 'transparent', " + col + ')',
+    },
   });
 }
 
