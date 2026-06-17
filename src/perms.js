@@ -121,40 +121,53 @@ async function saveSyncFp(part, value) {
 
 // ---- 反映(アイテムへの権限適用) ---------------------------------------
 
-// 反映に使う文脈(ロール定義・管理者・L1ごとの割当)を一度だけ組み立てる
+// 反映に使う文脈(ロール定義・管理者・L1ごとの割当・実行者情報)を一度だけ組み立てる
 async function buildPermContext(state) {
   const roles = await fetchPermRoles();
   const adminIds = await loadAdminGroupIds();
+  const me = await spGet('/_api/web/currentuser?$select=Id,IsSiteAdmin');
+  let myGroupIds = [];
+  try { myGroupIds = ((await spGet('/_api/web/currentuser/groups?$select=Id')).value || []).map((g) => g.Id); }
+  catch { /* 取得不可なら安全側(実行者の個別権限を維持)に倒す */ }
+  // 実行者がサイト管理者 or 管理者グループのメンバーなら、グループ経由で全行にアクセスできるので
+  // 個別ユーザ権限は外してよい。そうでなければ外すとロックアウトするので個別権限を残す(安全弁)
+  const adminSet = new Set(adminIds);
+  const keepExecutor = !(me.IsSiteAdmin || myGroupIds.some((id) => adminSet.has(id)));
   const cfgByTitle = new Map();
   for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
-  return { roles, adminIds, cfgByTitle };
+  return { roles, adminIds, cfgByTitle, currentUserId: me.Id, keepExecutor };
 }
 
-// 1アイテムへ適用: 継承を解除し、既定/既存の割当(個別ユーザ権限を含む)をすべて取り除いてから
-// [管理者=フル / 割当グループ=投稿] のグループだけを付与する(未割当の組織区分1は管理者のみ)。
-//   - 実行者(リスト作成者)に SP が自動付与する個別ユーザ権限も削除する。実行者は管理者グループ/
-//     割当グループ経由でアクセスする前提(個別付与は不要)。サイトコレクション管理者は明示割当が
-//     無くても常にアクセスできるためロックアウトはしない。
+// 1アイテムへ適用: 継承を解除し、[管理者=フル / 割当グループ=投稿] を付与してから、
+// 付与したグループ以外(既定の継承グループ・継承解除で自動付与される実行者の個別権限など)を削除する。
+//   - 付与を先に行うのが重要: 実行者の権限を消す前にグループを付けることで、付与の途中で実行者が
+//     アイテムを見失って 400「アイテムが存在しません」になるのを防ぐ。
+//   - 個別ユーザ権限は残さない(グループだけで構成)。ただし実行者がどの管理者グループにも属さない
+//     場合だけは ctx.keepExecutor で個別権限を残し、自分をロックアウトしないようにする。
 async function applyPermToItem(ctx, itemId, l1Title) {
   const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
   const base = lt(LIST_USERS) + '/items(' + itemId + ')';
   await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
-  // 既定の継承割当(サイトの全権限グループ等)も、継承解除で自動付与される実行者の個別権限も
-  // すべて外す。権限はグループだけで構成し、個別ユーザ権限は一切残さない
-  const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
-  for (const ra of current) {
-    await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
-  }
+  // 1) 先にグループを付与する(実行者の権限を消す前に付ける)
   const assign = (gid, roleId) =>
     spPost(base + '/roleassignments/addroleassignment(principalid=' + gid + ',roledefid=' + roleId + ')');
-  const done = new Set();
+  const keep = new Set(); // 残す principalId(付与したグループ)
   for (const gid of ctx.adminIds) {
+    if (keep.has(gid)) continue;
     await assign(gid, ctx.roles.full.Id);
-    done.add(gid);
+    keep.add(gid);
   }
   for (const gid of groupIds) {
-    if (done.has(gid)) continue;
+    if (keep.has(gid)) continue;
     await assign(gid, ctx.roles.edit.Id);
+    keep.add(gid);
+  }
+  // 2) 付与したグループ以外を削除(既定グループ・実行者の個別権限など)。付与後なのでアクセスは維持
+  const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
+  for (const ra of current) {
+    if (keep.has(ra.PrincipalId)) continue;
+    if (ctx.keepExecutor && ra.PrincipalId === ctx.currentUserId) continue; // 安全弁
+    await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
   }
   return 'applied';
 }

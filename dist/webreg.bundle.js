@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-7535b1d1" !== 'undefined' ? "0.1.0-7535b1d1" : 'dev';
+const BUILD = typeof "0.1.0-d8fa9949" !== 'undefined' ? "0.1.0-d8fa9949" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -866,28 +866,38 @@ else await spPost(lt(LIST_CONF) + '/items', body);
 async function buildPermContext(state) {
 const roles = await fetchPermRoles();
 const adminIds = await loadAdminGroupIds();
+const me = await spGet('/_api/web/currentuser?$select=Id,IsSiteAdmin');
+let myGroupIds = [];
+try { myGroupIds = ((await spGet('/_api/web/currentuser/groups?$select=Id')).value || []).map((g) => g.Id); }
+catch { }
+const adminSet = new Set(adminIds);
+const keepExecutor = !(me.IsSiteAdmin || myGroupIds.some((id) => adminSet.has(id)));
 const cfgByTitle = new Map();
 for (const x of state.l1) cfgByTitle.set(x.Title, permGroupIdsOf(x));
-return { roles, adminIds, cfgByTitle };
+return { roles, adminIds, cfgByTitle, currentUserId: me.Id, keepExecutor };
 }
 async function applyPermToItem(ctx, itemId, l1Title) {
 const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
 const base = lt(LIST_USERS) + '/items(' + itemId + ')';
 await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
-const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
-for (const ra of current) {
-await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
-}
 const assign = (gid, roleId) =>
 spPost(base + '/roleassignments/addroleassignment(principalid=' + gid + ',roledefid=' + roleId + ')');
-const done = new Set();
+const keep = new Set();
 for (const gid of ctx.adminIds) {
+if (keep.has(gid)) continue;
 await assign(gid, ctx.roles.full.Id);
-done.add(gid);
+keep.add(gid);
 }
 for (const gid of groupIds) {
-if (done.has(gid)) continue;
+if (keep.has(gid)) continue;
 await assign(gid, ctx.roles.edit.Id);
+keep.add(gid);
+}
+const current = (await spGet(base + '/roleassignments?$select=PrincipalId')).value || [];
+for (const ra of current) {
+if (keep.has(ra.PrincipalId)) continue;
+if (ctx.keepExecutor && ra.PrincipalId === ctx.currentUserId) continue;
+await spDelete(base + '/roleassignments/getbyprincipalid(' + ra.PrincipalId + ')');
 }
 return 'applied';
 }
