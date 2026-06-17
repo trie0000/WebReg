@@ -9,7 +9,7 @@ const LS_LIST_PREFIX = 'webreg.listPrefix';
 const BASE_LIST_L1 = '組織区分第1階層マスタ';
 const BASE_LIST_L2 = '組織区分第2階層マスタ';
 const BASE_LIST_USERS = '利用者一覧';
-const BASE_LIST_USERS_EN = '利用者一覧(英語)';
+const BASE_LIST_USERS_EN = 'User List (English)';
 const BASE_LIST_CONF = 'WebReg設定';
 const BASE_LIST_AUDIT = '操作ログ';
 const LIST_COMMON = 'WebReg共通設定';
@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-be554711" !== 'undefined' ? "0.1.0-be554711" : 'dev';
+const BUILD = typeof "0.1.0-501db1de" !== 'undefined' ? "0.1.0-501db1de" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -3251,7 +3251,7 @@ return { version: BACKUP_VERSION, exportedAt: stamp || '', prefix: listPrefix(),
 }
 async function resetAllItems(log, opts) {
 const includeMasters = !!(opts && opts.includeMasters);
-const targets = [['利用者一覧', LIST_USERS], ['利用者一覧(英語)', LIST_USERS_EN]];
+const targets = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
 if (includeMasters) targets.push([LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1]);
 const summary = {};
 for (const [label, title] of targets) {
@@ -3281,7 +3281,7 @@ const back = el(`
           <div class="pr-field" style="margin-top:var(--s-3)">
             <label class="pr-check"><input type="radio" name="rst-mode" value="users" checked>
               利用者データのみ削除(マスタは残す)</label>
-            <span class="pr-note" style="margin-left:24px">利用者一覧 / 利用者一覧(英語)を空にします。${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタは保持。</span>
+            <span class="pr-note" style="margin-left:24px">利用者一覧 / 英語版利用者一覧を空にします。${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタは保持。</span>
             <label class="pr-check" style="margin-top:var(--s-2)"><input type="radio" name="rst-mode" value="all">
               マスタも含めて全削除</label>
             <span class="pr-note" style="margin-left:24px">利用者データに加えて${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタも削除し、派生列も一掃します。</span>

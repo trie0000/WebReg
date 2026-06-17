@@ -66,12 +66,12 @@ async function buildBackup(state, stamp) {
 // ---- リセット ----------------------------------------------------------
 
 // 管理対象リストのアイテムを削除して空にする(構造は残す)。
-//   既定: 利用者データ(利用者一覧 / 利用者一覧(英語))のみ削除し、マスタは残す。
+//   既定: 利用者データ(利用者一覧 / 英語版利用者一覧)のみ削除し、マスタは残す。
 //   opts.includeMasters=true: 組織区分マスタ(第1/第2階層)も削除し、利用者一覧の派生列も一掃する。
 //   操作ログ・共通設定は常に残す(監査の連続性のため。QAM のデータリセットと同様)。
 async function resetAllItems(log, opts) {
   const includeMasters = !!(opts && opts.includeMasters);
-  const targets = [['利用者一覧', LIST_USERS], ['利用者一覧(英語)', LIST_USERS_EN]];
+  const targets = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
   if (includeMasters) targets.push([LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1]); // 子→親の順で削除
   const summary = {};
   for (const [label, title] of targets) {
@@ -105,7 +105,7 @@ function openResetModal() {
           <div class="pr-field" style="margin-top:var(--s-3)">
             <label class="pr-check"><input type="radio" name="rst-mode" value="users" checked>
               利用者データのみ削除(マスタは残す)</label>
-            <span class="pr-note" style="margin-left:24px">利用者一覧 / 利用者一覧(英語)を空にします。${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタは保持。</span>
+            <span class="pr-note" style="margin-left:24px">利用者一覧 / 英語版利用者一覧を空にします。${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタは保持。</span>
             <label class="pr-check" style="margin-top:var(--s-2)"><input type="radio" name="rst-mode" value="all">
               マスタも含めて全削除</label>
             <span class="pr-note" style="margin-left:24px">利用者データに加えて${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタも削除し、派生列も一掃します。</span>

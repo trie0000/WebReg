@@ -13,7 +13,7 @@ const LS_LIST_PREFIX = 'webreg.listPrefix'; // 共通設定リストの値を端
 const BASE_LIST_L1 = '組織区分第1階層マスタ';
 const BASE_LIST_L2 = '組織区分第2階層マスタ';
 const BASE_LIST_USERS = '利用者一覧';
-const BASE_LIST_USERS_EN = '利用者一覧(英語)';
+const BASE_LIST_USERS_EN = 'User List (English)'; // 英語版リストは名称も英語(接頭辞は英語前提)
 const BASE_LIST_CONF = 'WebReg設定';
 const BASE_LIST_AUDIT = '操作ログ';
 // 共通設定リストは接頭辞に依存しない固定名(接頭辞自体をここに保存するため)
