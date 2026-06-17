@@ -670,7 +670,7 @@
             <input type="text" class="pr-input" id="pr-add-l1" placeholder="${esc(LABEL_L1)}の名称(日本語)">
             <input type="text" class="pr-input" id="pr-add-l1-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l1">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l1" title="複数行でまとめて追加。既存と同名の行は英語名だけ一括更新(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${state.l1.map((x) =>
             rowHtml(x, 'l1', x.Id === state.selectedL1 ? ' sel' : '')).join('') ||
@@ -685,7 +685,7 @@
             <input type="text" class="pr-input" id="pr-add-l2" placeholder="「${esc(sel.Title)}」配下の名称(日本語)">
             <input type="text" class="pr-input" id="pr-add-l2-en" placeholder="英語名(任意)">
             <button class="pr-btn pr-btn--primary" data-act="add-l2">${ico('plus')}追加</button>
-            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加(日本語[タブ/カンマ]英語)">まとめて</button>
+            <button class="pr-btn pr-btn--ghost" data-act="bulk-l2" title="複数行でまとめて追加。既存と同名の行は英語名だけ一括更新(日本語[タブ/カンマ]英語)">まとめて</button>
           </div>
           <div class="pr-rows">${l2of(sel.Id).map((x) => rowHtml(x, 'l2')).join('') ||
             '<div class="pr-empty">未登録</div>'}</div>`
@@ -963,17 +963,20 @@
       const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
       const targetLabel = isL1 ? LABEL_L1 : '「' + (selL1 ? selL1.Title : '') + '」配下の' + LABEL_L2;
       const text = await modal({
-        title: 'まとめて追加 — ' + targetLabel,
-        message: '1行に1件ずつ入力してください(Excel の列を貼り付けてもOK)。既存と重複する名称はスキップされます。確定は Cmd/Ctrl+Enter でも可。',
+        title: 'まとめて追加 / 英語名の一括設定 — ' + targetLabel,
+        message: '1行に1件ずつ「日本語[タブ または カンマ]英語」(英語は任意)。Excel の2列を貼り付けてもOK。' +
+          '新規の名称は追加し、既存と同名の行は英語名だけ更新します(英語名の一括設定に使えます)。確定は Cmd/Ctrl+Enter でも可。',
         inputValue: '',
         multiline: true,
-        okLabel: '追加する',
+        okLabel: '反映する',
       });
       if (text == null) return;
       const pool = isL1 ? state.l1
         : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
-      const existing = new Set(pool.map((x) => x.Title));
-      const entries = [];
+      const poolByTitle = new Map(pool.map((x) => [x.Title, x]));
+      const adds = [];
+      const updates = []; // 既存の英語名更新 {id, name, en}
+      const seen = new Set();
       let dup = 0;
       // 1行 = 日本語[タブ または カンマ]英語(英語は任意)
       for (const raw of text.split(/\r?\n/)) {
@@ -981,26 +984,35 @@
         const parts = raw.split(/\t|,|，/);
         const n = (parts[0] || '').trim();
         const en = (parts[1] || '').trim();
-        if (!n) continue;
-        if (existing.has(n)) { dup++; continue; }
-        existing.add(n);
-        entries.push({ name: n, en });
+        if (!n || seen.has(n)) continue; // 同じ日本語名の重複行はスキップ
+        seen.add(n);
+        const exist = poolByTitle.get(n);
+        if (exist) {
+          if (en && en !== (exist.TitleEn || '')) updates.push({ id: exist.Id, name: n, en });
+          else dup++;
+        } else {
+          adds.push({ name: n, en });
+        }
       }
-      if (!entries.length) {
-        toast('warn', '追加できる名称がありません' + (dup ? '(すべて既存と重複)' : ''));
+      if (!adds.length && !updates.length) {
+        toast('warn', '追加・更新できる行がありません' + (dup ? '(既存と同じ内容)' : ''));
         return;
       }
-      run('まとめて追加', async () => {
-        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタに ' + entries.length + '件をまとめて追加');
+      run('まとめて追加/英語名設定', async () => {
+        auditNote((isL1 ? LABEL_L1 : LABEL_L2) + 'マスタ: 追加 ' + adds.length + '件 / 英語名更新 ' + updates.length + '件');
         let order = nextOrder(pool);
-        for (const e of entries) {
+        for (const e of adds) {
           const body = { Title: e.name, TitleEn: e.en, SortOrder: order, Active: true };
           if (!isL1) body.Level1Id = state.selectedL1;
           await addItem(isL1 ? LIST_L1 : LIST_L2, body);
           order += 10;
         }
+        for (const u of updates) {
+          await updateItem(isL1 ? LIST_L1 : LIST_L2, u.id, { TitleEn: u.en });
+        }
         await reload();
-        toast('ok', entries.length + '件追加しました' + (dup ? '(' + dup + '件は重複のためスキップ)' : ''));
+        toast('ok', '追加 ' + adds.length + '件 / 英語名更新 ' + updates.length + '件' +
+          (dup ? '(' + dup + '件は変更なし)' : ''), { sticky: !!(updates.length || dup) });
       });
       return;
     }
