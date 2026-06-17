@@ -16,16 +16,20 @@ function el(html) {
 }
 
 // kind: 'ok'(2秒) | 'warn'(3秒) | 'err'(手動close + コピーボタン)
-function toast(kind, msg) {
+// opts.sticky=true で自動消滅させない(閉じるボタン/クリックで明示的に消すまで残す)。
+// 件数報告など読ませたい通知に使う。残る通知には内容コピーボタンも付ける
+function toast(kind, msg, opts) {
   let host = _root.querySelector('.pr-toasts');
   if (!host) {
     host = el('<div class="pr-toasts" role="status" aria-live="polite"></div>');
     _root.appendChild(host);
   }
+  const sticky = !!(opts && opts.sticky);
+  const showCopy = kind === 'err' || sticky;
   const t = el(`
     <div class="pr-toast pr-toast--${kind}">
       <div class="pr-msg"></div>
-      ${kind === 'err' ? `<button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="copy" aria-label="エラー内容をコピー">${ico('copy')}</button>` : ''}
+      ${showCopy ? `<button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="copy" aria-label="内容をコピー">${ico('copy')}</button>` : ''}
       <button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="close" aria-label="閉じる">${ico('x')}</button>
     </div>`);
   t.querySelector('.pr-msg').textContent = msg;
@@ -36,6 +40,7 @@ function toast(kind, msg) {
     else t.remove();
   });
   host.appendChild(t);
+  if (sticky || kind === 'err') return; // 明示的に閉じるまで残す
   if (kind === 'ok') setTimeout(() => t.remove(), 2000);
   if (kind === 'warn') setTimeout(() => t.remove(), 3000);
 }

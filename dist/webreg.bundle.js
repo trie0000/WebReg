@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-bd41a9d6" !== 'undefined' ? "0.1.0-bd41a9d6" : 'dev';
+const BUILD = typeof "0.1.0-62fd64e8" !== 'undefined' ? "0.1.0-62fd64e8" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -1708,16 +1708,18 @@ const t = document.createElement('template');
 t.innerHTML = html.trim();
 return t.content.firstElementChild;
 }
-function toast(kind, msg) {
+function toast(kind, msg, opts) {
 let host = _root.querySelector('.pr-toasts');
 if (!host) {
 host = el('<div class="pr-toasts" role="status" aria-live="polite"></div>');
 _root.appendChild(host);
 }
+const sticky = !!(opts && opts.sticky);
+const showCopy = kind === 'err' || sticky;
 const t = el(`
     <div class="pr-toast pr-toast--${kind}">
       <div class="pr-msg"></div>
-      ${kind === 'err' ? `<button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="copy" aria-label="エラー内容をコピー">${ico('copy')}</button>` : ''}
+      ${showCopy ? `<button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="copy" aria-label="内容をコピー">${ico('copy')}</button>` : ''}
       <button class="pr-btn pr-btn--icon pr-btn--ghost" data-tact="close" aria-label="閉じる">${ico('x')}</button>
     </div>`);
 t.querySelector('.pr-msg').textContent = msg;
@@ -1728,6 +1730,7 @@ if (b.dataset.tact === 'copy') navigator.clipboard.writeText(msg).catch(() => {}
 else t.remove();
 });
 host.appendChild(t);
+if (sticky || kind === 'err') return;
 if (kind === 'ok') setTimeout(() => t.remove(), 2000);
 if (kind === 'warn') setTimeout(() => t.remove(), 3000);
 }
@@ -4988,13 +4991,15 @@ await reload();
 if (hasAnyPermConfig(state) && touched.length) {
 const ps = await applyPermissionsToItems(state, touched, setStatus);
 if (ps.errors.length) {
-toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg, { sticky: true });
 }
 }
 auditNote('CSVインポート: 追加 ' + added + '件 / 更新 ' + updated + '件');
+const notable = plan.skippedPerm || (plan.dupErrors && plan.dupErrors.length);
 toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
 (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : '') +
-(plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''));
+(plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''),
+{ sticky: !!notable });
 if (rowErrors.length) {
 toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
 rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
@@ -5089,16 +5094,16 @@ await reload();
 if (hasAnyPermConfig(state) && touched.length) {
 const ps = await applyPermissionsToItems(state, touched, setStatus);
 if (ps.errors.length) {
-toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg, { sticky: true });
 }
 }
 auditNote('Excelインポート: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
 '件 / 論理削除 ' + plan.deletes.length + '件');
 toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
-'件 / 論理削除 ' + plan.deletes.length + '件');
+'件 / 論理削除 ' + plan.deletes.length + '件', { sticky: plan.notFound.length > 0 });
 if (plan.notFound.length) {
 toast('warn', '更新/削除の対象が見つからずスキップした列 ' + plan.notFound.length + '件: ' +
-plan.notFound.slice(0, 5).map((x) => x.name).join('、') + (plan.notFound.length > 5 ? ' ほか' : ''));
+plan.notFound.slice(0, 5).map((x) => x.name).join('、') + (plan.notFound.length > 5 ? ' ほか' : ''), { sticky: true });
 }
 if (rowErrors.length) {
 toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +

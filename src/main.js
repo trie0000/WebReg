@@ -356,13 +356,16 @@
       if (hasAnyPermConfig(state) && touched.length) {
         const ps = await applyPermissionsToItems(state, touched, setStatus);
         if (ps.errors.length) {
-          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg, { sticky: true });
         }
       }
       auditNote('CSVインポート: 追加 ' + added + '件 / 更新 ' + updated + '件');
+      // スキップ/重複があると読ませたいので、その場合は自動消滅させない(明示的に閉じるまで残す)
+      const notable = plan.skippedPerm || (plan.dupErrors && plan.dupErrors.length);
       toast('ok', 'インポート完了: 追加 ' + added + '件 / 更新 ' + updated + '件' +
         (plan.skippedPerm ? '(対象外の権限 ' + plan.skippedPerm + '件はスキップ)' : '') +
-        (plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''));
+        (plan.dupErrors && plan.dupErrors.length ? '(' + LABEL_L1 + '内の重複 ' + plan.dupErrors.length + '件はスキップ)' : ''),
+      { sticky: !!notable });
       if (rowErrors.length) {
         toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
           rowErrors.slice(0, 5).map((x) => x.name).join('、') + (rowErrors.length > 5 ? ' ほか' : '') +
@@ -468,16 +471,16 @@
       if (hasAnyPermConfig(state) && touched.length) {
         const ps = await applyPermissionsToItems(state, touched, setStatus);
         if (ps.errors.length) {
-          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+          toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg, { sticky: true });
         }
       }
       auditNote('Excelインポート: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
         '件 / 論理削除 ' + plan.deletes.length + '件');
       toast('ok', 'Excelインポート完了: 追加 ' + plan.adds.length + '件 / 更新 ' + changed.length +
-        '件 / 論理削除 ' + plan.deletes.length + '件');
+        '件 / 論理削除 ' + plan.deletes.length + '件', { sticky: plan.notFound.length > 0 });
       if (plan.notFound.length) {
         toast('warn', '更新/削除の対象が見つからずスキップした列 ' + plan.notFound.length + '件: ' +
-          plan.notFound.slice(0, 5).map((x) => x.name).join('、') + (plan.notFound.length > 5 ? ' ほか' : ''));
+          plan.notFound.slice(0, 5).map((x) => x.name).join('、') + (plan.notFound.length > 5 ? ' ほか' : ''), { sticky: true });
       }
       if (rowErrors.length) {
         toast('err', '取込に失敗した行 ' + rowErrors.length + '件: ' +
