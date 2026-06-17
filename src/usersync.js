@@ -607,14 +607,19 @@ async function applyColumnOrder(orderedManaged, listTitle) {
     } catch { /* ignore */ }
   }
 
-  // SP標準フォーム: FieldLinks の全体順(管理対象以外は現状維持で先頭、管理対象を末尾)
+  // SP標準フォーム: FieldLinks の全体順。管理対象(組織区分1 → 組織区分2チェック)は
+  // 権限(Permission)の直後に差し込む(末尾送りにしない)。それ以外は現状の順を保つ
   const managedSet = new Set(orderedManaged);
   const cts = await spGet(lt(target) + "/contenttypes?$select=StringId");
   const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
   if (!ct) return;
   const links = await spGet(lt(target) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
   const names = (links.value || []).map((f) => f.Name);
-  const ordered = names.filter((n) => !managedSet.has(n))
-    .concat(orderedManaged.filter((n) => names.includes(n)));
+  const nonManaged = names.filter((n) => !managedSet.has(n));
+  const managed = orderedManaged.filter((n) => names.includes(n));
+  const anchor = nonManaged.indexOf('Permission'); // 権限の直後に組織区分1〜を置く
+  const ordered = anchor >= 0
+    ? nonManaged.slice(0, anchor + 1).concat(managed, nonManaged.slice(anchor + 1))
+    : nonManaged.concat(managed);
   await spReorderContentTypeFields(target, ordered);
 }

@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-31fccc49" !== 'undefined' ? "0.1.0-31fccc49" : 'dev';
+const BUILD = typeof "0.1.0-bd41a9d6" !== 'undefined' ? "0.1.0-bd41a9d6" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -776,8 +776,12 @@ const ct = (cts.value || []).find((c) => c.StringId.indexOf('0x01') === 0);
 if (!ct) return;
 const links = await spGet(lt(target) + "/contenttypes('" + ct.StringId + "')/fieldlinks?$select=Name");
 const names = (links.value || []).map((f) => f.Name);
-const ordered = names.filter((n) => !managedSet.has(n))
-.concat(orderedManaged.filter((n) => names.includes(n)));
+const nonManaged = names.filter((n) => !managedSet.has(n));
+const managed = orderedManaged.filter((n) => names.includes(n));
+const anchor = nonManaged.indexOf('Permission');
+const ordered = anchor >= 0
+? nonManaged.slice(0, anchor + 1).concat(managed, nonManaged.slice(anchor + 1))
+: nonManaged.concat(managed);
 await spReorderContentTypeFields(target, ordered);
 }
 const CONF_KEY_ADMIN_GROUPS = 'adminGroups';
