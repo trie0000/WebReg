@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-62fd64e8" !== 'undefined' ? "0.1.0-62fd64e8" : 'dev';
+const BUILD = typeof "0.1.0-2f9495f3" !== 'undefined' ? "0.1.0-2f9495f3" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -676,51 +676,8 @@ try { await spPost(lt(LIST_USERS_EN) + '/items', body); summary.users++; } catch
 } catch (e) { summary.usersWarn = e.message; }
 return summary;
 }
-const CHIP_ADD = 'rgb(202,240,204)';
-const CHIP_UPD = 'rgb(212,231,246)';
-const CHIP_DEL = 'rgb(250,187,195)';
-const CHIP_GRAY = 'rgb(229,229,229)';
-function chipFormatterJson(colorMap, deflt) {
-const entries = Object.entries(colorMap);
-let col = "'" + deflt + "'";
-for (let i = entries.length - 1; i >= 0; i--) {
-col = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + col + ")";
-}
-return JSON.stringify({
-$schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
-elmType: 'div',
-txtContent: '@currentField',
-style: {
-display: 'inline-block',
-'box-sizing': 'border-box',
-padding: '2px 10px',
-'border-radius': '16px',
-'white-space': 'nowrap',
-'background-color': "=if(@currentField == '', 'transparent', " + col + ')',
-},
-});
-}
 async function applyListFormatting(state, listTitle, lang) {
 const target = listTitle || LIST_USERS;
-const tr = (lang === 'en');
-const ctMap = {};
-ctMap[tr ? toEnChangeType('追加') : '追加'] = CHIP_ADD;
-ctMap[tr ? toEnChangeType('新規') : '新規'] = CHIP_ADD;
-ctMap[tr ? toEnChangeType('更新') : '更新'] = CHIP_UPD;
-ctMap[tr ? toEnChangeType('変更') : '変更'] = CHIP_UPD;
-ctMap[tr ? toEnChangeType('削除') : '削除'] = CHIP_DEL;
-ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = CHIP_GRAY;
-const pmMap = {};
-pmMap[tr ? toEnPermission('更新者') : '更新者'] = CHIP_UPD;
-pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = CHIP_GRAY;
-const setFmt = async (internal, json) => {
-try {
-await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
-{ CustomFormatter: json });
-} catch { }
-};
-await setFmt('ChangeType', chipFormatterJson(ctMap, CHIP_GRAY));
-await setFmt('Permission', chipFormatterJson(pmMap, CHIP_GRAY));
 const calcCols = ['OrgLevel2'];
 try {
 const subs = await spGet(lt(target) +

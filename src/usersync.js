@@ -488,60 +488,13 @@ async function syncEnglishUserList(state, log) {
   return summary;
 }
 
-// 選択肢→色の「標準コンパクトチップ」列フォーマットを生成する。
-// 単一要素 + inline-block で内容ぴったりのピルにする(横長/縦長にならない)。
-// 重要: display:none やネスト構造は新規/編集フォームの選択肢ピッカーを潰すため使わない。
-// 空欄は背景を透明にして実質チップを出さない(要素自体は残すのでフォームが潰れない)。
-// 色はツール内グリッドの pr-spchip と同じ RGB を背景色に直接指定し、見た目を統一する。
-const CHIP_ADD = 'rgb(202,240,204)';  // 追加/新規(緑)   = pr-spchip--add
-const CHIP_UPD = 'rgb(212,231,246)';  // 更新/変更/更新者(青) = pr-spchip--upd
-const CHIP_DEL = 'rgb(250,187,195)';  // 削除(赤)         = pr-spchip--del
-const CHIP_GRAY = 'rgb(229,229,229)'; // 変更なし/閲覧者/その他(灰) = pr-spchip--gray
-function chipFormatterJson(colorMap, deflt) {
-  const entries = Object.entries(colorMap);
-  let col = "'" + deflt + "'";
-  for (let i = entries.length - 1; i >= 0; i--) {
-    col = "if(@currentField == '" + entries[i][0] + "', '" + entries[i][1] + "', " + col + ")";
-  }
-  return JSON.stringify({
-    $schema: 'https://developer.microsoft.com/json-schemas/sp/v2/column-formatting.schema.json',
-    elmType: 'div',
-    txtContent: '@currentField',
-    style: {
-      display: 'inline-block',
-      'box-sizing': 'border-box',
-      padding: '2px 10px',
-      'border-radius': '16px',
-      'white-space': 'nowrap',
-      'background-color': "=if(@currentField == '', 'transparent', " + col + ')',
-    },
-  });
-}
-
-// 変更区分/権限の選択肢に、ツールと同色の標準チップ書式を付け、読み取り専用の集計列をフォームから隠す。
-// listTitle 省略時は日本語の利用者一覧。lang='en' のときは英語の選択肢値に色を付ける。
+// 読み取り専用の集計列を新規/編集フォームから隠す。
+// 選択肢列(変更区分/権限)の書式には一切触れない: 一部テナントでは選択肢列に CustomFormatter を
+// 当てると一覧・フォーム双方の描画が壊れるため。色付けは SP 標準の「選択肢ごとの色」機能で行う
+// (列の編集で各選択肢に色を設定。フォームを壊さず一覧でもピル表示される)。
+// listTitle 省略時は日本語の利用者一覧。lang は呼び出し側互換のため受けるが未使用。
 async function applyListFormatting(state, listTitle, lang) {
   const target = listTitle || LIST_USERS;
-  const tr = (lang === 'en');
-  // 追加系=緑 / 更新系=青 / 削除=赤 / 変更なし=灰(ツールのチップと同じ RGB)
-  const ctMap = {};
-  ctMap[tr ? toEnChangeType('追加') : '追加'] = CHIP_ADD;
-  ctMap[tr ? toEnChangeType('新規') : '新規'] = CHIP_ADD;
-  ctMap[tr ? toEnChangeType('更新') : '更新'] = CHIP_UPD;
-  ctMap[tr ? toEnChangeType('変更') : '変更'] = CHIP_UPD;
-  ctMap[tr ? toEnChangeType('削除') : '削除'] = CHIP_DEL;
-  ctMap[tr ? toEnChangeType('変更なし') : '変更なし'] = CHIP_GRAY;
-  const pmMap = {};
-  pmMap[tr ? toEnPermission('更新者') : '更新者'] = CHIP_UPD;
-  pmMap[tr ? toEnPermission('閲覧者') : '閲覧者'] = CHIP_GRAY;
-  const setFmt = async (internal, json) => {
-    try {
-      await spMerge(lt(target) + "/fields/getbyinternalnameortitle('" + internal + "')",
-        { CustomFormatter: json });
-    } catch { /* 書式設定は失敗しても反映は継続 */ }
-  };
-  await setFmt('ChangeType', chipFormatterJson(ctMap, CHIP_GRAY));
-  await setFmt('Permission', chipFormatterJson(pmMap, CHIP_GRAY));
 
   // 読み取り専用の集計列(統合列 OrgLevel2 + 中間列 O2S_*)を新規/編集フォームから隠す
   const calcCols = ['OrgLevel2'];
