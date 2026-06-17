@@ -162,6 +162,7 @@ function usersViewHtml(state) {
         : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="「${esc(LIST_USERS)}」のSPリストを新しいタブで開く">${ico('external')}SPで開く</button>
+      ${anyEnAssigned(state) ? '<button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" data-en="1" title="「' + esc(LIST_USERS_EN) + '」のSPリストを新しいタブで開く">' + ico('external') + '英語リスト</button>' : ''}
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-export" title="${esc(LABEL_L1)}を選んで現在の登録状況を .xlsx で出力">Excel出力</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import-xlsx" title="Excel出力と同じ形式のファイルから追加・更新・論理削除を取込">Excel取込</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>

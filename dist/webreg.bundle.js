@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-0fe975c3" !== 'undefined' ? "0.1.0-0fe975c3" : 'dev';
+const BUILD = typeof "0.1.0-be554711" !== 'undefined' ? "0.1.0-be554711" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -1652,6 +1652,14 @@ const css = `
   padding:var(--s-3) var(--s-4) var(--s-5) !important;
   resize:none !important; overflow:auto !important; line-height:1.6 !important;
 }
+/* マスタの2欄一括入力(日本語|英語を行対応で入力) */
+#${ROOT_ID} .pr-bulk2{ display:flex; gap:var(--s-3); margin-top:var(--s-2); }
+#${ROOT_ID} .pr-bulk2-col{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--s-2); }
+#${ROOT_ID} .pr-bulk2-col label{ font-size:var(--fs-sm); color:var(--ink-3); }
+#${ROOT_ID} .pr-bulk2-ta{
+  min-height:240px; max-height:55vh; resize:vertical; overflow:auto;
+  line-height:1.7; font-family:var(--mono, ui-monospace, monospace); font-size:var(--fs-sm); white-space:pre;
+}
 #${ROOT_ID} .pr-modal-actions{ display:flex; justify-content:flex-end; gap:var(--s-3); margin-top:var(--s-2); }
 `;
 let _root = null;
@@ -1875,6 +1883,68 @@ else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
 document.addEventListener('keydown', onKey, true);
 document.getElementById(ROOT_ID).appendChild(back);
 back.querySelector('#rn-ja').focus();
+});
+}
+function openBulkMasterModal(titleText, items) {
+return new Promise((resolve) => {
+const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="${esc(titleText)}">
+          <h4>${esc(titleText)}</h4>
+          <span class="pr-note">日本語名と英語名を<b>同じ行で対応</b>させて入力します。既存の名称は読み込み済みで、
+            英語が無い行は空欄です。英語名を入れて保存すると一括設定されます。
+            行を増やせば新規追加(日本語のみでも可)。Excel の各列を貼り付けてもOK。</span>
+          <div class="pr-bulk2">
+            <div class="pr-bulk2-col"><label>日本語名</label>
+              <textarea class="pr-input pr-bulk2-ta" id="blk-ja" rows="12" spellcheck="false" wrap="off"></textarea></div>
+            <div class="pr-bulk2-col"><label>英語名</label>
+              <textarea class="pr-input pr-bulk2-ta" id="blk-en" rows="12" spellcheck="false" wrap="off"></textarea></div>
+          </div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">反映する</button>
+          </div>
+        </div>
+      </div>`);
+const jaTa = back.querySelector('#blk-ja');
+const enTa = back.querySelector('#blk-en');
+jaTa.value = items.map((x) => x.Title || '').join('\n');
+enTa.value = items.map((x) => x.TitleEn || '').join('\n');
+let lock = false;
+const sync = (src, dst) => { if (lock) return; lock = true; dst.scrollTop = src.scrollTop; lock = false; };
+jaTa.addEventListener('scroll', () => sync(jaTa, enTa));
+enTa.addEventListener('scroll', () => sync(enTa, jaTa));
+const done = (val) => {
+document.removeEventListener('keydown', onKey, true);
+back.remove();
+resolve(val);
+};
+const ok = () => {
+const ja = jaTa.value.split(/\r?\n/);
+const en = enTa.value.split(/\r?\n/);
+const pairs = [];
+for (let i = 0; i < ja.length; i++) {
+const n = ja[i].trim();
+if (!n) continue;
+pairs.push({ name: n, en: (en[i] || '').trim() });
+}
+done(pairs);
+};
+let downOnBack = false;
+back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+back.addEventListener('click', (e) => {
+if (e.target === back) { if (downOnBack) done(null); return; }
+const b = e.target.closest('[data-mact]');
+if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+});
+const onKey = (e) => {
+if (e.isComposing || e.keyCode === 229) return;
+if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+};
+document.addEventListener('keydown', onKey, true);
+document.getElementById(ROOT_ID).appendChild(back);
+jaTa.focus();
 });
 }
 const GRID_W = 'webreg.colw.';
@@ -2304,6 +2374,7 @@ return `
 : `<b>利用者一覧</b><span class="pr-count">${list.length}件${list.length !== state.users.length ? ' / 全' + state.users.length + '件' : ''}</span>`}
       <span style="flex:1"></span>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" title="「${esc(LIST_USERS)}」のSPリストを新しいタブで開く">${ico('external')}SPで開く</button>
+      ${anyEnAssigned(state) ? '<button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-open-sp" data-en="1" title="「' + esc(LIST_USERS_EN) + '」のSPリストを新しいタブで開く">' + ico('external') + '英語リスト</button>' : ''}
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-export" title="${esc(LABEL_L1)}を選んで現在の登録状況を .xlsx で出力">Excel出力</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import-xlsx" title="Excel出力と同じ形式のファイルから追加・更新・論理削除を取込">Excel取込</button>
       <button class="pr-btn pr-btn--sm pr-btn--ghost" data-act="user-import" title="CSVで現行の登録状況を一括取込">CSVインポート</button>
@@ -5488,8 +5559,13 @@ toast('warn', '復元できなかった削除済みマスタ: ' + r.missing.join
 return;
 }
 if (act === 'user-open-sp') {
+const listTitle = t.dataset.en ? LIST_USERS_EN : LIST_USERS;
 try {
-const j = await spGet(lt(LIST_USERS) + '?$select=DefaultViewUrl');
+if (!(await listId(listTitle))) {
+toast('warn', '「' + listTitle + '」リストはまだありません(海外/両方に振り分けて「リストへ反映」すると作成されます)');
+return;
+}
+const j = await spGet(lt(listTitle) + '?$select=DefaultViewUrl');
 window.open(new URL(j.DefaultViewUrl, getWebUrl()).href, '_blank');
 } catch (e) {
 toast('err', 'SPリストを開けません — ' + e.message);
@@ -5500,28 +5576,17 @@ if (act === 'bulk-l1' || act === 'bulk-l2') {
 const isL1 = act === 'bulk-l1';
 const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
 const targetLabel = isL1 ? LABEL_L1 : '「' + (selL1 ? selL1.Title : '') + '」配下の' + LABEL_L2;
-const text = await modal({
-title: 'まとめて追加 / 英語名の一括設定 — ' + targetLabel,
-message: '1行に1件ずつ「日本語[タブ または カンマ]英語」(英語は任意)。Excel の2列を貼り付けてもOK。' +
-'新規の名称は追加し、既存と同名の行は英語名だけ更新します(英語名の一括設定に使えます)。確定は Cmd/Ctrl+Enter でも可。',
-inputValue: '',
-multiline: true,
-okLabel: '反映する',
-});
-if (text == null) return;
 const pool = isL1 ? state.l1
 : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
+const pairs = await openBulkMasterModal('まとめて追加 / 英語名の一括設定 — ' + targetLabel, pool);
+if (pairs == null) return;
 const poolByTitle = new Map(pool.map((x) => [x.Title, x]));
 const adds = [];
 const updates = [];
 const seen = new Set();
 let dup = 0;
-for (const raw of text.split(/\r?\n/)) {
-if (!raw.trim()) continue;
-const parts = raw.split(/\t|,|，/);
-const n = (parts[0] || '').trim();
-const en = (parts[1] || '').trim();
-if (!n || seen.has(n)) continue;
+for (const { name: n, en } of pairs) {
+if (seen.has(n)) continue;
 seen.add(n);
 const exist = poolByTitle.get(n);
 if (exist) {

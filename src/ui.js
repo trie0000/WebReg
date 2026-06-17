@@ -256,3 +256,70 @@ function openRenameMasterModal(item) {
     back.querySelector('#rn-ja').focus();
   });
 }
+
+// マスタのまとめて追加/英語名一括設定。日本語と英語を2つのテキスト欄に「同じ行=対応」で入力する。
+// items(既存マスタ)を日本語・英語の各欄に読み込んでおく(英語が無い行は空行)。順番が対応関係。
+// resolve: [{name, en}] (日本語が空の行は除外) | null
+function openBulkMasterModal(titleText, items) {
+  return new Promise((resolve) => {
+    const back = el(`
+      <div class="pr-backdrop">
+        <div class="pr-modal pr-modal--form" role="dialog" aria-modal="true" aria-label="${esc(titleText)}">
+          <h4>${esc(titleText)}</h4>
+          <span class="pr-note">日本語名と英語名を<b>同じ行で対応</b>させて入力します。既存の名称は読み込み済みで、
+            英語が無い行は空欄です。英語名を入れて保存すると一括設定されます。
+            行を増やせば新規追加(日本語のみでも可)。Excel の各列を貼り付けてもOK。</span>
+          <div class="pr-bulk2">
+            <div class="pr-bulk2-col"><label>日本語名</label>
+              <textarea class="pr-input pr-bulk2-ta" id="blk-ja" rows="12" spellcheck="false" wrap="off"></textarea></div>
+            <div class="pr-bulk2-col"><label>英語名</label>
+              <textarea class="pr-input pr-bulk2-ta" id="blk-en" rows="12" spellcheck="false" wrap="off"></textarea></div>
+          </div>
+          <div class="pr-modal-actions">
+            <button class="pr-btn pr-btn--secondary" data-mact="cancel">キャンセル</button>
+            <button class="pr-btn pr-btn--primary" data-mact="ok">反映する</button>
+          </div>
+        </div>
+      </div>`);
+    const jaTa = back.querySelector('#blk-ja');
+    const enTa = back.querySelector('#blk-en');
+    jaTa.value = items.map((x) => x.Title || '').join('\n');
+    enTa.value = items.map((x) => x.TitleEn || '').join('\n');
+    // 縦スクロールを同期して行のずれを防ぐ
+    let lock = false;
+    const sync = (src, dst) => { if (lock) return; lock = true; dst.scrollTop = src.scrollTop; lock = false; };
+    jaTa.addEventListener('scroll', () => sync(jaTa, enTa));
+    enTa.addEventListener('scroll', () => sync(enTa, jaTa));
+    const done = (val) => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      resolve(val);
+    };
+    const ok = () => {
+      const ja = jaTa.value.split(/\r?\n/);
+      const en = enTa.value.split(/\r?\n/);
+      const pairs = [];
+      for (let i = 0; i < ja.length; i++) {
+        const n = ja[i].trim();
+        if (!n) continue; // 日本語が空の行は対象外
+        pairs.push({ name: n, en: (en[i] || '').trim() });
+      }
+      done(pairs);
+    };
+    let downOnBack = false;
+    back.addEventListener('mousedown', (e) => { downOnBack = e.target === back; });
+    back.addEventListener('click', (e) => {
+      if (e.target === back) { if (downOnBack) done(null); return; }
+      const b = e.target.closest('[data-mact]');
+      if (b) (b.dataset.mact === 'ok' ? ok() : done(null));
+    });
+    const onKey = (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ok();
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.getElementById(ROOT_ID).appendChild(back);
+    jaTa.focus();
+  });
+}

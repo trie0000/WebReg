@@ -949,8 +949,13 @@
     }
 
     if (act === 'user-open-sp') {
+      const listTitle = t.dataset.en ? LIST_USERS_EN : LIST_USERS;
       try {
-        const j = await spGet(lt(LIST_USERS) + '?$select=DefaultViewUrl');
+        if (!(await listId(listTitle))) {
+          toast('warn', '「' + listTitle + '」リストはまだありません(海外/両方に振り分けて「リストへ反映」すると作成されます)');
+          return;
+        }
+        const j = await spGet(lt(listTitle) + '?$select=DefaultViewUrl');
         window.open(new URL(j.DefaultViewUrl, getWebUrl()).href, '_blank');
       } catch (e) {
         toast('err', 'SPリストを開けません — ' + e.message);
@@ -962,29 +967,18 @@
       const isL1 = act === 'bulk-l1';
       const selL1 = state.l1.find((x) => x.Id === state.selectedL1);
       const targetLabel = isL1 ? LABEL_L1 : '「' + (selL1 ? selL1.Title : '') + '」配下の' + LABEL_L2;
-      const text = await modal({
-        title: 'まとめて追加 / 英語名の一括設定 — ' + targetLabel,
-        message: '1行に1件ずつ「日本語[タブ または カンマ]英語」(英語は任意)。Excel の2列を貼り付けてもOK。' +
-          '新規の名称は追加し、既存と同名の行は英語名だけ更新します(英語名の一括設定に使えます)。確定は Cmd/Ctrl+Enter でも可。',
-        inputValue: '',
-        multiline: true,
-        okLabel: '反映する',
-      });
-      if (text == null) return;
       const pool = isL1 ? state.l1
         : state.l2.filter((x) => x.Level1 && x.Level1.Id === state.selectedL1);
+      // 既存マスタを読み込んだ2欄(日本語/英語)で、同じ行=対応として入力させる
+      const pairs = await openBulkMasterModal('まとめて追加 / 英語名の一括設定 — ' + targetLabel, pool);
+      if (pairs == null) return;
       const poolByTitle = new Map(pool.map((x) => [x.Title, x]));
       const adds = [];
       const updates = []; // 既存の英語名更新 {id, name, en}
       const seen = new Set();
       let dup = 0;
-      // 1行 = 日本語[タブ または カンマ]英語(英語は任意)
-      for (const raw of text.split(/\r?\n/)) {
-        if (!raw.trim()) continue;
-        const parts = raw.split(/\t|,|，/);
-        const n = (parts[0] || '').trim();
-        const en = (parts[1] || '').trim();
-        if (!n || seen.has(n)) continue; // 同じ日本語名の重複行はスキップ
+      for (const { name: n, en } of pairs) {
+        if (seen.has(n)) continue; // 同じ日本語名の重複行はスキップ
         seen.add(n);
         const exist = poolByTitle.get(n);
         if (exist) {

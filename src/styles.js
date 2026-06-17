@@ -510,5 +510,13 @@ const css = `
   padding:var(--s-3) var(--s-4) var(--s-5) !important;
   resize:none !important; overflow:auto !important; line-height:1.6 !important;
 }
+/* マスタの2欄一括入力(日本語|英語を行対応で入力) */
+#${ROOT_ID} .pr-bulk2{ display:flex; gap:var(--s-3); margin-top:var(--s-2); }
+#${ROOT_ID} .pr-bulk2-col{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--s-2); }
+#${ROOT_ID} .pr-bulk2-col label{ font-size:var(--fs-sm); color:var(--ink-3); }
+#${ROOT_ID} .pr-bulk2-ta{
+  min-height:240px; max-height:55vh; resize:vertical; overflow:auto;
+  line-height:1.7; font-family:var(--mono, ui-monospace, monospace); font-size:var(--fs-sm); white-space:pre;
+}
 #${ROOT_ID} .pr-modal-actions{ display:flex; justify-content:flex-end; gap:var(--s-3); margin-top:var(--s-2); }
 `;
