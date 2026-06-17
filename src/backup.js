@@ -65,13 +65,42 @@ async function buildBackup(state, stamp) {
 
 // ---- リセット ----------------------------------------------------------
 
-// 管理対象リストのアイテムを削除して空にする(構造は残す)。
+// 1リストの削除可能なカスタム列(独自に追加した列)をすべて削除する。
+// 組込列(Title/作成日時 等)は CanBeDeleted=false なので残る。依存(集計式の参照)で
+// 消せない列があるため、消えなくなるまで数回繰り返す。戻り値=削除した列数
+async function clearCustomColumns(title, log) {
+  if (!(await listId(title))) return 0;
+  let removed = 0;
+  for (let pass = 0; pass < 4; pass++) {
+    let fields;
+    try {
+      fields = (await spGet(lt(title) +
+        '/fields?$select=InternalName,CanBeDeleted,Hidden&$top=500')).value || [];
+    } catch { break; } // 列一覧の取得に失敗してもリセット本体は止めない
+    const targets = fields.filter((f) => f.CanBeDeleted && !f.Hidden);
+    if (!targets.length) break;
+    let failed = 0;
+    for (const f of targets) {
+      log('「' + title + '」の列を初期化中… (削除 ' + (removed + 1) + ')');
+      try { await spDelete(lt(title) + "/fields/getbyinternalnameortitle('" + f.InternalName + "')"); removed++; }
+      catch { failed++; }
+    }
+    if (!failed) break; // 全部消えた
+  }
+  return removed;
+}
+
+// 管理対象リストのアイテムを削除して空にする(既定では構造=列は残す)。
 //   既定: 利用者データ(利用者一覧 / 英語版利用者一覧)のみ削除し、マスタは残す。
 //   opts.includeMasters=true: 組織区分マスタ(第1/第2階層)も削除し、利用者一覧の派生列も一掃する。
+//   opts.clearColumns=true: 利用者一覧/英語版の「独自列」もすべて削除して構造ごと初期化する
+//     (手作りリストを乗っ取った後のクリーンアップ用。マスタの列は触らない)。
 //   操作ログ・共通設定は常に残す(監査の連続性のため。QAM のデータリセットと同様)。
 async function resetAllItems(log, opts) {
   const includeMasters = !!(opts && opts.includeMasters);
-  const targets = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
+  const clearColumns = !!(opts && opts.clearColumns);
+  const userLists = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
+  const targets = userLists.slice();
   if (includeMasters) targets.push([LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1]); // 子→親の順で削除
   const summary = {};
   for (const [label, title] of targets) {
@@ -84,9 +113,15 @@ async function resetAllItems(log, opts) {
     }
     summary[label] = items.length;
   }
-  // マスタごと消す場合は、旧マスタID由来の派生列(L2_*/O2S_*/OrgLevel2)を一掃して
-  // 次回の「リストへ反映」で表示名重複が起きないようにする
-  if (includeMasters) {
+  if (clearColumns) {
+    // 利用者一覧/英語版の独自列を全削除(次の「リストへ反映」で必要列が作り直される)
+    for (const [label, title] of userLists) {
+      const removed = await clearCustomColumns(title, log);
+      if (removed) summary[label + ' 列削除'] = removed;
+    }
+  } else if (includeMasters) {
+    // マスタごと消す場合は、旧マスタID由来の派生列(L2_*/O2S_*/OrgLevel2)を一掃して
+    // 次回の「リストへ反映」で表示名重複が起きないようにする
     log('派生列を整理中…');
     try { await dropDerivedUserColumns(); } catch { /* ignore */ }
   }
@@ -110,6 +145,11 @@ function openResetModal() {
               マスタも含めて全削除</label>
             <span class="pr-note" style="margin-left:24px">利用者データに加えて${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタも削除し、派生列も一掃します。</span>
           </div>
+          <label class="pr-check" style="margin-top:var(--s-3)"><input type="checkbox" id="rst-cols">
+            利用者一覧の列も初期化する(独自列を全削除して作り直す)</label>
+          <span class="pr-note" style="margin-left:24px">利用者一覧 / 英語版の<b>独自列をすべて削除</b>し、構造ごと初期化します
+            (手作りリストを乗っ取った後のクリーンアップ用)。組込列とマスタの列は触りません。
+            この後「リストへ反映」または利用者登録で必要な列が作り直されます。</span>
           <label class="pr-check" style="margin-top:var(--s-3)"><input type="checkbox" id="rst-confirm">
             上記を理解し、削除を実行します</label>
           <div class="pr-modal-actions">
@@ -134,7 +174,7 @@ function openResetModal() {
       if (b.dataset.mact !== 'ok') { done(null); return; }
       if (!back.querySelector('#rst-confirm').checked) return;
       const mode = back.querySelector('input[name="rst-mode"]:checked').value;
-      done({ includeMasters: mode === 'all' });
+      done({ includeMasters: mode === 'all', clearColumns: back.querySelector('#rst-cols').checked });
     });
     const onKey = (e) => {
       if (e.isComposing || e.keyCode === 229) return;

@@ -568,13 +568,16 @@
   async function resetFlow() {
     const choice = await openResetModal();
     if (!choice) return;
-    const label = choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)';
+    const label = (choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)') +
+      (choice.clearColumns ? ' / 列も初期化' : '');
     run('リセット', async () => {
       auditNote('リストのリセット: ' + label);
       const s = await resetAllItems(setStatus, choice);
       await reload();
-      const total = Object.values(s).reduce((a, b) => a + b, 0);
-      toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件)');
+      const total = Object.entries(s).filter(([k]) => !k.includes('列削除')).reduce((a, [, v]) => a + v, 0);
+      const cols = Object.entries(s).filter(([k]) => k.includes('列削除')).reduce((a, [, v]) => a + v, 0);
+      toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件' + (cols ? ' / 列 ' + cols + '本' : '') + ')',
+        { sticky: choice.clearColumns });
     });
   }
 

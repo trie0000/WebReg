@@ -52,7 +52,7 @@ localStorage.setItem(nk, String(localStorage.getItem(k)).replace('/permreg', '/w
 localStorage.removeItem(k);
 }
 } catch { }
-const BUILD = typeof "0.1.0-501db1de" !== 'undefined' ? "0.1.0-501db1de" : 'dev';
+const BUILD = typeof "0.1.0-e7be5ade" !== 'undefined' ? "0.1.0-e7be5ade" : 'dev';
 const EN_FIELD_TITLE = {
 Title: 'User Name',
 Company: 'Company',
@@ -3249,9 +3249,32 @@ lists[key] = await dumpList(title);
 }
 return { version: BACKUP_VERSION, exportedAt: stamp || '', prefix: listPrefix(), lists };
 }
+async function clearCustomColumns(title, log) {
+if (!(await listId(title))) return 0;
+let removed = 0;
+for (let pass = 0; pass < 4; pass++) {
+let fields;
+try {
+fields = (await spGet(lt(title) +
+'/fields?$select=InternalName,CanBeDeleted,Hidden&$top=500')).value || [];
+} catch { break; }
+const targets = fields.filter((f) => f.CanBeDeleted && !f.Hidden);
+if (!targets.length) break;
+let failed = 0;
+for (const f of targets) {
+log('「' + title + '」の列を初期化中… (削除 ' + (removed + 1) + ')');
+try { await spDelete(lt(title) + "/fields/getbyinternalnameortitle('" + f.InternalName + "')"); removed++; }
+catch { failed++; }
+}
+if (!failed) break;
+}
+return removed;
+}
 async function resetAllItems(log, opts) {
 const includeMasters = !!(opts && opts.includeMasters);
-const targets = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
+const clearColumns = !!(opts && opts.clearColumns);
+const userLists = [['利用者一覧', LIST_USERS], ['英語版利用者一覧', LIST_USERS_EN]];
+const targets = userLists.slice();
 if (includeMasters) targets.push([LABEL_L2, LIST_L2], [LABEL_L1, LIST_L1]);
 const summary = {};
 for (const [label, title] of targets) {
@@ -3264,7 +3287,12 @@ try { await spDelete(lt(title) + '/items(' + it.Id + ')'); } catch { }
 }
 summary[label] = items.length;
 }
-if (includeMasters) {
+if (clearColumns) {
+for (const [label, title] of userLists) {
+const removed = await clearCustomColumns(title, log);
+if (removed) summary[label + ' 列削除'] = removed;
+}
+} else if (includeMasters) {
 log('派生列を整理中…');
 try { await dropDerivedUserColumns(); } catch { }
 }
@@ -3286,6 +3314,11 @@ const back = el(`
               マスタも含めて全削除</label>
             <span class="pr-note" style="margin-left:24px">利用者データに加えて${esc(LABEL_L1)}・${esc(LABEL_L2)}マスタも削除し、派生列も一掃します。</span>
           </div>
+          <label class="pr-check" style="margin-top:var(--s-3)"><input type="checkbox" id="rst-cols">
+            利用者一覧の列も初期化する(独自列を全削除して作り直す)</label>
+          <span class="pr-note" style="margin-left:24px">利用者一覧 / 英語版の<b>独自列をすべて削除</b>し、構造ごと初期化します
+            (手作りリストを乗っ取った後のクリーンアップ用)。組込列とマスタの列は触りません。
+            この後「リストへ反映」または利用者登録で必要な列が作り直されます。</span>
           <label class="pr-check" style="margin-top:var(--s-3)"><input type="checkbox" id="rst-confirm">
             上記を理解し、削除を実行します</label>
           <div class="pr-modal-actions">
@@ -3310,7 +3343,7 @@ if (!b) return;
 if (b.dataset.mact !== 'ok') { done(null); return; }
 if (!back.querySelector('#rst-confirm').checked) return;
 const mode = back.querySelector('input[name="rst-mode"]:checked').value;
-done({ includeMasters: mode === 'all' });
+done({ includeMasters: mode === 'all', clearColumns: back.querySelector('#rst-cols').checked });
 });
 const onKey = (e) => {
 if (e.isComposing || e.keyCode === 229) return;
@@ -5210,13 +5243,16 @@ toast('ok', 'リストアが完了しました(利用者 ' + r.users + '件)');
 async function resetFlow() {
 const choice = await openResetModal();
 if (!choice) return;
-const label = choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)';
+const label = (choice.includeMasters ? 'マスタを含めて全削除' : '利用者データのみ削除(マスタは残す)') +
+(choice.clearColumns ? ' / 列も初期化' : '');
 run('リセット', async () => {
 auditNote('リストのリセット: ' + label);
 const s = await resetAllItems(setStatus, choice);
 await reload();
-const total = Object.values(s).reduce((a, b) => a + b, 0);
-toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件)');
+const total = Object.entries(s).filter(([k]) => !k.includes('列削除')).reduce((a, [, v]) => a + v, 0);
+const cols = Object.entries(s).filter(([k]) => k.includes('列削除')).reduce((a, [, v]) => a + v, 0);
+toast('ok', 'リセットしました(' + label + ' / 削除 ' + total + '件' + (cols ? ' / 列 ' + cols + '本' : '') + ')',
+{ sticky: choice.clearColumns });
 });
 }
 async function userBulkFlow() {
