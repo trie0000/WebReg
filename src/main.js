@@ -625,6 +625,10 @@
       return `<button class="pr-btn pr-btn--icon pr-btn--icon-action${n ? ' pr-perm-on' : ''}" data-act="perm"
         aria-label="権限グループ" title="権限グループの割当${n ? '(' + n + '件)' : '(未設定)'}">${ico('key')}</button>`;
     };
+    // 鍵アイコンの隣: この組織区分1の利用者行だけアクセス権を再適用する
+    const permApplyBtn = (x) => `<button class="pr-btn pr-btn--icon pr-btn--icon-action" data-act="perm-apply-row"
+      aria-label="この${esc(LABEL_L1)}のアクセス権を再設定"
+      title="この「${esc(x.Title)}」の利用者行だけアクセス権を再設定(割当グループ＋管理者)">${ico('sync')}</button>`;
     const diff = state.syncDiff;
     const staleHtml = (kind, x) => {
       const labels = diff ? (kind === 'l1' ? diff.l1Badges : diff.l2Badges).get(x.Id) || [] : [];
@@ -640,7 +644,7 @@
         <label class="pr-active" title="有効/無効">
           <input type="checkbox" data-act="active" aria-label="有効" ${x.Active !== false ? 'checked' : ''}>
         </label>
-        ${kind === 'l1' ? permBtn(x) : ''}
+        ${kind === 'l1' ? permBtn(x) + permApplyBtn(x) : ''}
         <button class="pr-btn pr-btn--icon pr-btn--icon-action" data-act="rename" aria-label="名称変更" title="名称変更">${ico('edit-2')}</button>
         <button class="pr-btn pr-btn--icon pr-btn--icon-trash" data-act="del" aria-label="削除" title="削除">${ico('trash-2')}</button>
       </div>`;
@@ -665,6 +669,8 @@
         <span>マスタの内容を「${esc(LIST_USERS)}」リストの列・選択肢・✅集計表示に反映します(無効はスキップ。列の削除はしません)。
           権限グループ割当があれば各行のアクセス権も適用します</span>
         <button class="pr-btn pr-btn--primary" data-act="sync-users">${ico('sync')}リストへ反映</button>
+        <button class="pr-btn pr-btn--secondary" data-act="perm-reapply-all"
+          title="全組織の利用者行のアクセス権を、マスタ指定の権限グループ＋管理者で一括再設定(増分ではなく全行)">${ico('key')}アクセス権を再設定</button>
       </div>
       <div class="pr-cols">
         <div class="pr-col">
@@ -922,6 +928,67 @@
         if (s.org2Mode) state.org2Mode = s.org2Mode;
         if (s.formulaWarn) toast('err', '集計列(組織区分2)の式の更新に失敗しました — ' + s.formulaWarn);
         if (s.condWarn) toast('warn', 'フォーム条件式の更新に失敗しました — ' + s.condWarn);
+      });
+      return;
+    }
+
+    // 全組織のアクセス権を一括再設定(増分ではなく全行。割当グループ＋管理者で付け直す)
+    if (act === 'perm-reapply-all') {
+      const admins = await loadAdminGroupIds();
+      if (!admins.length) {
+        toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)。' +
+          '未設定だと実行者以外がアクセスできなくなります');
+        return;
+      }
+      const ok = await modal({
+        title: 'アクセス権を全再設定',
+        message: '全組織の利用者行(' + state.users.length + '件)のアクセス権を、マスタで指定した権限グループ＋管理者グループで再設定します。' +
+          '増分ではなく全行を対象に、各行の継承を解除して付け直します(未割当の' + LABEL_L1 + 'の行は管理者のみ)。' +
+          'この操作は元に戻せません。',
+        okLabel: '全行を再設定',
+        danger: true,
+      });
+      if (!ok) return;
+      run('アクセス権の全再設定', async () => {
+        auditNote('全組織のアクセス権を再設定(全行)');
+        const ps = await applyPermissionsAll(state, setStatus);
+        await saveSyncFp('perms', computePermsSnap(state, admins));
+        await saveSyncFp('permsVer', PERM_APPLY_VER);
+        await reload();
+        if (ps.errors.length) toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+        else toast('ok', '全行のアクセス権を再設定しました(' + (ps.applied + ps.adminOnly) + '件)', { sticky: true });
+      });
+      return;
+    }
+
+    // この組織区分1の利用者行だけアクセス権を再設定(押した行の組織のみ)
+    if (act === 'perm-apply-row') {
+      if (!item || kind !== 'l1') return;
+      const admins = await loadAdminGroupIds();
+      if (!admins.length && !permGroupIdsOf(item).length) {
+        toast('warn', 'この' + LABEL_L1 + 'の権限グループも管理者グループも未設定です');
+        return;
+      }
+      if (!admins.length) {
+        toast('warn', '先に管理者グループを設定してください(設定 → 共通設定)');
+        return;
+      }
+      const ok = await modal({
+        title: 'アクセス権の再設定 — ' + item.Title,
+        message: '「' + item.Title + '」の利用者行だけ、マスタで指定した権限グループ＋管理者グループでアクセス権を再設定します。' +
+          '他の' + LABEL_L1 + 'の行は変更しません。この操作は元に戻せません。',
+        okLabel: '再設定する',
+        danger: true,
+      });
+      if (!ok) return;
+      run('アクセス権の再設定', async () => {
+        auditNote('「' + item.Title + '」のアクセス権を再設定(該当行のみ)');
+        const rows = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=5000')).value || [];
+        const targets = rows.filter((r) => (r.OrgLevel1 || '') === item.Title).map((r) => ({ id: r.Id, l1: item.Title }));
+        if (!targets.length) { toast('warn', 'この' + LABEL_L1 + 'の利用者行がありません'); return; }
+        const ps = await applyPermissionsToItems(state, targets, setStatus);
+        if (ps.errors.length) toast('err', '権限設定に失敗した行 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg);
+        else toast('ok', '「' + item.Title + '」の ' + targets.length + '件のアクセス権を再設定しました', { sticky: true });
       });
       return;
     }
