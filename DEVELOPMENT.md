@@ -7,15 +7,24 @@
 
 ```
 src/
-├── config.js   定数・localStorage キー・ビルド識別子(状態を持たない)
-├── sp.js       SharePoint REST クライアント(fetch はここ以外に書かない)
-├── schema.js   リスト/列スキーマ定義と冪等セットアップ
-├── icons.js    Feather 風 SVG アイコン
-├── styles.js   デザイントークン + 全 CSS(トークン定義はここだけ)
-├── ui.js       UI 基盤部品(el/esc/toast/modal)
-├── updater.js  自動更新(version.txt 監視 → 更新モーダル → 再読込)
-├── main.js     エントリ: state・ビュー・イベント・起動
-└── loader.js   ローダ(bookmarklet 本体。バンドルに含めない)
+├── config.js / i18n.js  定数・localStorage キー・ビルド識別子 / 英語版の対訳(状態を持たない)
+├── sp.js           SharePoint REST クライアント(fetch はここ以外に書かない。全件取得 spGetAll)
+├── schema.js       マスタリストのスキーマと冪等セットアップ
+├── usersync.js     「リストへ反映」: マスタ → 利用者一覧の列・選択肢・集計式・改廃ステータス列
+├── perms.js        行レベル権限(組織区分1ごとのグループ割当・適用)
+├── enlist.js       英語版利用者リストの生成と差分転記(SourceId 突合・行権限)
+├── syncstate.js    未反映の変更の検知・破棄
+├── icons.js        Feather 風 SVG アイコン
+├── styles.js       デザイントークン + 基盤 CSS(トークン定義はここだけ)
+├── stylesviews.js  画面別のコンポーネント CSS(styles.js の後ろに連結)
+├── ui.js / grid.js / gridfilter.js  UI 基盤部品(el/esc/toast/modal)/ 表の列幅・列順 / 列フィルター
+├── usersview.js / userform.js / reqview.js / compare.js / help.js / masterview.js  各画面の HTML と表操作
+├── audit.js / backup.js / settings.js / importcsv.js / xlsx.js / xlsxflow.js  操作ログ・バックアップ・設定・取込/出力
+├── updater.js      自動更新(version.txt 監視 → 更新モーダル → 再読込)
+├── appcore.js      アプリの state・データ読込・直列実行(run)・ステータス表示
+├── userflows.js / ioflows.js / masteractions.js  各操作のフロー(利用者 / 取込・出力・バックアップ / マスタ)
+├── main.js         エントリ: 画面の器・描画・イベント振り分け・起動
+└── loader.js       ローダ(bookmarklet 本体。バンドルに含めない)
 ```
 
 - **委託先で npm/Node が使えないため、ビルドは「連結方式」**: src は import/export を使わず、
@@ -23,7 +32,8 @@ src/
   そのため**トップレベルの宣言名はファイル間で一意**にすること(連結後は同一スコープ)
 - **新しい責務は新しいファイル**にする(main.js に足し続けない)。ファイルを増やしたら
   build.py の `ORDER` に依存順で追加する
-- 依存方向は一方向のみ: `main → (schema|ui|updater|views) → (sp|icons|styles|config)`。逆流禁止
+- 依存方向は一方向のみ: `main → (flows) → appcore → (views|ui|updater|sync系|schema) → (sp|icons|styles|config)`。逆流禁止
+  (appcore から main の描画は bindAppShell で受け取った関数経由で呼ぶ)
 
 ## 2. サイズ上限(超えたら分割・棚卸し)
 
@@ -38,7 +48,8 @@ src/
 > xlsx 読み書き等を自前実装しているため 2026-06 に 200KB へ改定。
 
 - 上限超過に気付いたら**その変更の中で**分割する(「あとで」は禁止)
-- bundle サイズは `npm run build` の出力で毎回確認する
+- bundle サイズは `python3 build.py` の出力で毎回確認する(バイト数 = 配信サイズと文字数の両方を出す。
+  上限はバイト数で見る。日本語は UTF-8 で 3 バイト)
 
 ## 3. 依存ポリシー
 

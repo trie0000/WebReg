@@ -54,9 +54,9 @@ function visibleReqs(state) {
     reqCellText(state, col, a).localeCompare(reqCellText(state, col, b), 'ja') * dir || (a.Id - b.Id) * dir);
 }
 
-// ステータスバッジ風の色分け(作業待ち=警告 / 改廃済み=アクセント / 結果確認済み=淡色)
+// ステータスバッジ風の色分け(作業待ち=警告 / 改廃済み=アクセント / 結果確認済み・なし=淡色)
 function reqStatusClass(s) {
-  if (s === WORK_STATUS_DONE) return 'pr-rst--verified';
+  if (s === WORK_STATUS_DONE || s === WORK_STATUS_NONE) return 'pr-rst--verified';
   if (s === '改廃済み') return 'pr-rst--done';
   return 'pr-rst--wait';
 }
@@ -89,8 +89,9 @@ function reqViewHtml(state) {
   // ステータスは色分けチップ風のインラインselect(その場で直接変更できる)
   const statusCell = (u) => {
     const cur = reqStatusOf(u);
+    const opts = WORK_STATUS.includes(cur) ? WORK_STATUS : WORK_STATUS.concat([cur]); // SP側の独自値も残す
     return '<select class="pr-chipsel ' + reqStatusClass(cur) + '" data-reqstatus="' + u.Id + '">' +
-      WORK_STATUS.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
+      opts.map((s) => '<option' + (s === cur ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
       '</select>';
   };
   const cellHtml = (c, u) => c.key === 'changeType' ? ctChipHtml(u.ChangeType || '')

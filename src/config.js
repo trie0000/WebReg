@@ -37,10 +37,11 @@ applyListPrefix();
 const CHANGE_TYPE_DEFAULTS = ['新規', '変更', '削除', '変更なし'];
 const PERMISSION_DEFAULTS = ['更新者', '閲覧者'];
 
-// 改廃依頼(実機への登録作業)のステータス。WorkStatus 列の選択肢
+// 改廃依頼(実機への登録作業)のステータス。WorkStatus 列の選択肢(この順で表示)
 const NO_CHANGE = '変更なし'; // 改廃依頼の対象外とする変更区分
-const WORK_STATUS = ['作業待ち', '改廃済み', '結果確認済み'];
-const WORK_STATUS_DEFAULT = '作業待ち';
+const WORK_STATUS_NONE = 'なし'; // 実機作業が不要
+const WORK_STATUS = [WORK_STATUS_NONE, '作業待ち', '改廃済み', '結果確認済み'];
+const WORK_STATUS_DEFAULT = '作業待ち'; // 列の既定値(未設定の行もこの扱い)
 const WORK_STATUS_DONE = '結果確認済み'; // チェックで非表示にできるステータス
 
 // 詳細ログ(コンソール)。エラーは常時出力、'1' なら全リクエストを出力

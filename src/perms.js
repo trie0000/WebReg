@@ -144,9 +144,10 @@ async function buildPermContext(state) {
 //     アイテムを見失って 400「アイテムが存在しません」になるのを防ぐ。
 //   - 個別ユーザ権限は残さない(グループだけで構成)。ただし実行者がどの管理者グループにも属さない
 //     場合だけは ctx.keepExecutor で個別権限を残し、自分をロックアウトしないようにする。
-async function applyPermToItem(ctx, itemId, l1Title) {
+// l1Title は日本語の組織区分1名(割当の引き当てキー)。listTitle 省略時は日本語の利用者一覧
+async function applyPermToItem(ctx, itemId, l1Title, listTitle) {
   const groupIds = ctx.cfgByTitle.get(l1Title || '') || [];
-  const base = lt(LIST_USERS) + '/items(' + itemId + ')';
+  const base = lt(listTitle || LIST_USERS) + '/items(' + itemId + ')';
   await spPost(base + '/breakroleinheritance(copyroleassignments=false,clearsubscopes=true)');
   // 1) 先にグループを付与する(実行者の権限を消す前に付ける)
   const assign = (gid, roleId) =>
@@ -193,7 +194,7 @@ async function applyPermissionsToItems(state, targets, log) {
 
 // 全アイテムへ反映(初回や全面再適用用)
 async function applyPermissionsAll(state, log) {
-  const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+  const items = await spGetAll(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=5000');
   return applyPermissionsToItems(state, items.map((it) => ({ id: it.Id, l1: it.OrgLevel1 })), log);
 }
 
@@ -201,30 +202,29 @@ async function applyPermissionsAll(state, log) {
 // 既存行に実行者の個別権限が残っているため、一度だけ全行へ再適用して掃除する
 const PERM_APPLY_VER = 2;
 
-// 前回反映時のスナップショットと比べ、権限設定が変わった行だけに反映する。
-// 「リストへ反映」でマスタ名や並びだけ変えたときに全件更新が走らないようにする。
-//   - 管理者グループが変わった or スナップショット無し or 版が古い → 全行に適用
-//   - それ以外 → 割当が変わった組織区分1の行だけに適用(変化なしなら何もしない)
-// 戻り値は applyPermissionsToItems と同じ + {scanned, skipped:true(一切適用せず)}
-async function applyPermissionsChanged(state, fp, adminIds, log) {
+// 前回反映時のスナップショットから権限設定が変わった組織区分1の名称集合。null は「全行に適用が必要」
+//   - 管理者グループが変わった or スナップショット無し or 版が古い → null(全行)
+//   - それ以外 → 割当が変わった組織区分1だけ(変化なしなら空集合)
+function permChangedTitles(state, fp, adminIds) {
   const permsSnap = fp && typeof fp.perms === 'object' ? fp.perms : null;
   const verOk = !!(fp && fp.permsVer === PERM_APPLY_VER); // 旧版は一度だけ全行で掃除
-  let targetTitles = null; // null = 全行
-  if (permsSnap && verOk) {
-    const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, JSON.stringify(ids.slice().sort((a, b) => a - b))]));
-    const oldAdmins = JSON.stringify((permsSnap.admins || []).slice().sort((a, b) => a - b));
-    const curAdmins = JSON.stringify((adminIds || []).slice().sort((a, b) => a - b));
-    if (oldAdmins === curAdmins) {
-      // 管理者据え置き → 割当が変わった組織区分1だけ
-      const titles = new Set();
-      for (const x of state.l1) {
-        const cur = JSON.stringify(permGroupIdsOf(x).slice().sort((a, b) => a - b));
-        if ((oldG.get(x.Id) || '[]') !== cur) titles.add(x.Title);
-      }
-      targetTitles = titles;
-    }
+  if (!permsSnap || !verOk) return null;
+  const sorted = (a) => JSON.stringify((a || []).slice().sort((x, y) => x - y));
+  if (sorted(permsSnap.admins) !== sorted(adminIds)) return null;
+  const oldG = new Map((permsSnap.g || []).map(([id, ids]) => [id, sorted(ids)]));
+  const titles = new Set();
+  for (const x of state.l1) {
+    if ((oldG.get(x.Id) || '[]') !== sorted(permGroupIdsOf(x))) titles.add(x.Title);
   }
-  const items = (await spGet(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=4999')).value || [];
+  return titles;
+}
+
+// 前回反映時のスナップショットと比べ、権限設定が変わった行だけに反映する。
+// 「リストへ反映」でマスタ名や並びだけ変えたときに全件更新が走らないようにする。
+// 戻り値は applyPermissionsToItems と同じ + {scanned, skipped:true(一切適用せず)}
+async function applyPermissionsChanged(state, fp, adminIds, log) {
+  const targetTitles = permChangedTitles(state, fp, adminIds); // null = 全行
+  const items = await spGetAll(lt(LIST_USERS) + '/items?$select=Id,OrgLevel1&$top=5000');
   const targets = (targetTitles === null ? items
     : items.filter((it) => targetTitles.has(it.OrgLevel1 || '')))
     .map((it) => ({ id: it.Id, l1: it.OrgLevel1 }));

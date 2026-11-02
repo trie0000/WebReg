@@ -40,7 +40,7 @@ async function dumpList(title) {
     'CustomFormatter,Choices,DefaultValue,Hidden,ReadOnlyField&$filter=Hidden eq false')).value || [];
   let view = [];
   try { view = (await spGet(lt(title) + '/defaultview/viewfields')).Items || []; } catch { /* ignore */ }
-  const items = (await spGet(lt(title) + '/items?$select=*&$top=5000')).value || [];
+  const items = await spGetAll(lt(title) + '/items?$select=*&$top=5000');
   return {
     name: title,
     fields: fields.map((f) => ({

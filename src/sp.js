@@ -79,6 +79,19 @@ async function sp(method, path, body, headers) {
 }
 
 const spGet = (p) => sp('GET', p);
+// アイテム一覧の全件取得。$top(実機の上限 5000)を超える分は odata.nextLink を辿って続きを読む。
+// nextLink は絶対 URL なので /_api/ 以降を取り出して sp() に渡す
+async function spGetAll(p) {
+  const out = [];
+  let path = p;
+  while (path) {
+    const j = await spGet(path);
+    for (const x of (j.value || [])) out.push(x);
+    const next = j['odata.nextLink'];
+    path = next ? next.slice(next.indexOf('/_api/')) : '';
+  }
+  return out;
+}
 const spPost = (p, b) => sp('POST', p, b);
 const spMerge = (p, b) => sp('POST', p, b, { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' });
 const spDelete = (p) => sp('POST', p, null, { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' });

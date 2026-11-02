@@ -3,7 +3,7 @@
  * 起動時に version.txt を確認して webreg.bundle.js?v=<ver> を読み込む。
  *  - 既定: SP の「ドキュメント/webreg/」(<web>/Shared Documents/webreg/) から <script src> で読込
  *  - 開発者モード(localStorage webreg.dev.bundle-source === 'local'):
- *    ローカル開発サーバ(npm run dev)から CSP 回避のため fetch → (0,eval)() で読込
+ *    ローカル開発サーバ(python3 dev/serve.py)から CSP 回避のため fetch → (0,eval)() で読込
  *  - ローカル失敗は alert(loud)、SP 失敗はローカルへのフォールバックなし・alert で案内
  */
 (function () {
@@ -54,7 +54,7 @@
   function fail(why) {
     var msg = '[WebReg] バンドル読込失敗: ' + base + (why ? ' (' + why + ')' : '') + '\n' +
       (isLocal
-        ? 'npm run dev が起動しているか、設定のローカル配信URLを確認してください。'
+        ? 'python3 dev/serve.py が起動しているか、設定のローカル配信URLを確認してください。'
         : 'SP の ドキュメント/webreg/ に dist 一式を配置するか、設定画面で開発者モードに切り替えてください。');
     alert(msg);
     console.error(msg);

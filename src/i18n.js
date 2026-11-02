@@ -22,7 +22,7 @@ const EN_CHANGE_TYPE = {
   追加: 'Add', 新規: 'New', 変更: 'Change', 更新: 'Update', 削除: 'Delete', 変更なし: 'No Change',
 };
 const EN_PERMISSION = { 更新者: 'Editor', 閲覧者: 'Viewer', 参照者: 'Reader' };
-const EN_WORK_STATUS = { 作業待ち: 'Pending', 改廃済み: 'Done', 結果確認済み: 'Verified' };
+const EN_WORK_STATUS = { なし: 'None', 作業待ち: 'Pending', 改廃済み: 'Done', 結果確認済み: 'Verified' };
 
 // 言語別の文言(リスト説明など)
 const EN_LIST_DESC = 'User permission registry (English)';
