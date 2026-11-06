@@ -25,6 +25,17 @@ async function ensureStatusColFor(body) {
   if ('WorkStatus' in body) await ensureWorkStatusColumn();
 }
 
+// 一括で書き込んだ行の行レベル権限を付け直す(権限グループ割当があるときだけ。失敗は警告どまり)
+async function reapplyPermsForIds(ids) {
+  if (!hasAnyPermConfig(state)) return;
+  const sel = new Set(ids);
+  const targets = state.users.filter((u) => sel.has(u.Id)).map((u) => ({ id: u.Id, l1: u.OrgLevel1 }));
+  const ps = await applyPermissionsToItems(state, targets, setStatus);
+  if (ps.errors.length) {
+    toast('warn', '行の権限設定に失敗 ' + ps.errors.length + '件 — 最初のエラー: ' + ps.errors[0].msg, { sticky: true });
+  }
+}
+
 async function userAddFlow() {
   const result = await openUserForm(state, async (body) => {
     await ensureCheckedL2Cols(body);
@@ -69,6 +80,7 @@ async function userBulkFlow() {
       Object.entries(changes).map(([k, v]) => k + '=' + (v === true ? 'ON' : v === false ? 'OFF' : v)).join(', '));
     await ensureStatusColFor(changes);
     for (const id of ids) await updateItem(LIST_USERS, id, changes);
+    await reapplyPermsForIds(ids);
     await reload();
     toast('ok', ids.length + '件を一括変更しました');
   });
@@ -103,6 +115,8 @@ function userStatusChange(id, status) {
     auditNote((u ? '「' + (u.Title || '') + '」' : '#' + id) + 'の改廃ステータスを「' + status + '」に変更');
     await ensureWorkStatusColumn();
     await updateItem(LIST_USERS, id, body);
+    // 編集フォームと同じく、書き込んだ行の行レベル権限も付け直す(失敗は警告どまり)
+    if (u) await applyPermAfterWrite(state, id, u.OrgLevel1);
     await reload();
   });
 }
@@ -121,6 +135,7 @@ async function reqBulkStatusFlow() {
     auditNote(ids.length + '件の改廃ステータスを「' + status + '」に変更');
     await ensureWorkStatusColumn();
     for (const id of ids) await updateItem(LIST_USERS, id, body);
+    await reapplyPermsForIds(ids);
     selectedReqIds.clear();
     await reload();
     toast('ok', ids.length + '件のステータスを「' + status + '」に変更しました' +
